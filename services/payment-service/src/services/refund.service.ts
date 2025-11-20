@@ -90,7 +90,7 @@ export class RefundService {
       await this.transactionLedgerService.recordRefund(
         refund.id,
         refund.payment_id,
-        refund.order_id,
+        refund.order_id ?? '',
         Number(refund.refund_amount),
         refund.refund_reason,
         {

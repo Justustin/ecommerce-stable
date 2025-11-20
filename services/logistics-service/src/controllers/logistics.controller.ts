@@ -90,7 +90,7 @@ export async function updateShipmentStatus(req: Request, res: Response) {
 export async function trackShipment(req: Request, res: Response) {
   try {
     const { trackingNumber } = req.params;
-    const tracking = await service.trackShipment(trackingNumber);
+    const tracking = await service.getTracking(trackingNumber);
     
     res.json({
       success: true,

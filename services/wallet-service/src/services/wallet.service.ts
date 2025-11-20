@@ -181,7 +181,7 @@ export class WalletService {
                     where: { id: withdrawal.id },
                     data: {
                         status: 'failed',
-                        failure_reason: errorMessage,
+                        failed_reason: errorMessage,
                         processed_at: new Date()
                     }
                 });

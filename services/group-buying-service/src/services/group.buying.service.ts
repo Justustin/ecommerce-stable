@@ -366,9 +366,9 @@ export class GroupBuyingService {
     // Get warehouse tolerance configuration for this variant
     const tolerance = await prisma.grosir_warehouse_tolerance.findUnique({
       where: {
-        unique_tolerance_product_variant: {
+        product_id_variant_id: {
           product_id: session.product_id,
-          variant_id: variantId || null
+          variant_id: variantId || "null"
         }
       }
     });

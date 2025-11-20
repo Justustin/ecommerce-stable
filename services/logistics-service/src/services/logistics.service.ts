@@ -362,6 +362,14 @@ export class LogisticsService {
       throw new Error('Shipment not found');
     }
 
+    // Fetch the related order and order_items
+    const order = await prisma.orders.findUnique({
+      where: { id: shipment.order_id },
+      include: {
+        order_items: true
+      }
+    });
+
     const labelData = {
       senderName: shipment.sender_name,
       senderAddress: shipment.sender_address,
@@ -376,11 +384,11 @@ export class LogisticsService {
       trackingNumber: shipment.tracking_number,
       courierName: shipment.courier_service.toUpperCase(),
       serviceType: shipment.service_type || 'Regular',
-      orderNumber: shipment.orders?.order_number || '',
+      orderNumber: order?.order_number || '',
       shippingCost: Number(shipment.shipping_cost),
       weight: shipment.weight_grams / 1000,
-      quantity: shipment.orders?.order_items?.length || 1,
-      itemDescription: shipment.orders?.order_items?.map(item => item.product_name).join(', ') || '',
+      quantity: order?.order_items?.length || 1,
+      itemDescription: order?.order_items?.map(item => item.product_name).join(', ') || '',
       shippingDate: new Date(shipment.created_at).toLocaleDateString('id-ID', {
         day: '2-digit',
         month: 'long',

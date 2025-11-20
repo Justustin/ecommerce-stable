@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3004;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api-docs', swaggerUi.serve as any, swaggerUi.setup(swaggerSpec) as any);
 
 app.get('/health', (req, res) => {
   res.json({
