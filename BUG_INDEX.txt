@@ -1,0 +1,109 @@
+================================================================================
+BUG REPORT INDEX - E-COMMERCE MICROSERVICES
+================================================================================
+
+CRITICAL BUGS (2):
+================================================================================
+[1] LOGISTICS-SERVICE: Parameter Type Mismatch in getTracking()
+    Files:
+    - /home/user/ecommerce-stable/services/logistics-service/src/controllers/logistics.controller.ts (Line 92-93)
+    - /home/user/ecommerce-stable/services/logistics-service/src/services/logistics.service.ts (Line 268)
+    Description: Controller passes trackingNumber but service expects shipmentId
+    Impact: Users cannot track shipments at all
+
+[2] WAREHOUSE-SERVICE: Null String Conversion Bug
+    File: /home/user/ecommerce-stable/services/warehouse-service/src/repositories/warehouse.repository.ts (Line 10)
+    Description: variantId || "null" converts null to string "null" instead of actual null
+    Impact: Inventory lookup fails for products without variants
+
+
+HIGH PRIORITY BUGS (4):
+================================================================================
+[3] LOGISTICS-SERVICE: Parameter Validation Gap
+    File: /home/user/ecommerce-stable/services/logistics-service/src/controllers/logistics.controller.ts (Line 90-106)
+    Description: trackingNumber parameter not validated
+    Impact: Cryptic error messages for invalid tracking numbers
+
+[4] WALLET-SERVICE: Incomplete Withdrawal Validation
+    File: /home/user/ecommerce-stable/services/wallet-service/src/services/wallet.service.ts (Line 45-48)
+    Description: Only checks amount > WITHDRAWAL_FEE, ignores minimum 10,000 IDR requirement
+    Related: /home/user/ecommerce-stable/services/wallet-service/src/utils/withdrawal.ts (unused)
+    Impact: Users can withdraw uneconomical amounts
+
+[5] WAREHOUSE-SERVICE: Unused Bundle Calculation Utilities
+    File: /home/user/ecommerce-stable/services/warehouse-service/src/utils/bundleCalculation.ts (Lines 3-39)
+    Description: Utility functions defined but never used; different logic in service
+    Impact: Confusing codebase, unclear feature implementation
+
+[6] LOGISTICS-SERVICE: Unsafe Webhook Payload Access
+    File: /home/user/ecommerce-stable/services/logistics-service/src/services/logistics.service.ts (Lines 288-290)
+    Description: References undefined variable biteshipTracking in webhook handler
+    Impact: Webhooks crash, shipment status updates fail
+
+
+MEDIUM PRIORITY BUGS (4):
+================================================================================
+[7] WALLET-SERVICE: Missing Batch Processing Idempotency
+    File: /home/user/ecommerce-stable/services/wallet-service/src/services/wallet.service.ts (Lines 105-236)
+    Description: No protection against concurrent batch withdrawal processing
+    Impact: Potential duplicate payouts to users
+
+[8] WAREHOUSE-SERVICE: Null Check Ordering Issue
+    File: /home/user/ecommerce-stable/services/warehouse-service/src/services/warehouse.service.ts (Lines 26-52)
+    Description: Uses inventory?.available_quantity before checking if inventory exists
+    Impact: Potential null pointer exception
+
+[9] LOGISTICS-SERVICE: Missing Tracking Response Validation
+    File: /home/user/ecommerce-stable/services/logistics-service/src/services/logistics.service.ts (Lines 281-291)
+    Description: Accesses biteshipTracking.history[0]?.updated_at without checking if history exists
+    Impact: Invalid Date objects in database
+
+[10] WAREHOUSE-SERVICE: Inconsistent Stock Property Naming
+    File: /home/user/ecommerce-stable/services/warehouse-service/src/services/warehouse.service.ts
+    - fulfillDemand: Line 26 (uses available_quantity)
+    - fulfillBundleDemand: Line 171 (uses quantity AND available_quantity)
+    Description: Different property names used across related methods
+    Impact: Logic inconsistency
+
+
+LOW PRIORITY BUGS (2):
+================================================================================
+[11] WALLET-SERVICE: Float Amount Validation
+    File: /home/user/ecommerce-stable/services/wallet-service/src/routes/wallet.routes.ts (Line 100-151)
+    Description: Amounts validated as floats without precision/maximum limits
+    Impact: Floating point errors, unlimited withdrawal amounts possible
+
+[12] WALLET-SERVICE: Missing Error Message Truncation
+    File: /home/user/ecommerce-stable/services/wallet-service/src/services/wallet.service.ts (Lines 178-187)
+    Description: Error messages not truncated before storing in database
+    Impact: Database errors if message exceeds column length
+
+
+DOCUMENTATION FILES:
+================================================================================
+- /home/user/ecommerce-stable/BUG_REPORT.md (Full detailed report)
+- /home/user/ecommerce-stable/BUG_FIXES_PRIORITY.md (Quick fix guide with examples)
+- /home/user/ecommerce-stable/BUG_INDEX.txt (This file)
+
+
+SUMMARY BY SERVICE:
+================================================================================
+Logistics Service:   4 bugs (1 CRITICAL, 2 HIGH, 1 MEDIUM)
+Wallet Service:      4 bugs (0 CRITICAL, 1 HIGH, 2 MEDIUM, 1 LOW)
+Warehouse Service:   4 bugs (1 CRITICAL, 2 HIGH, 1 MEDIUM)
+Settlement Service:  0 bugs (logic is actually correct)
+
+Total: 12 bugs found (2 CRITICAL, 4 HIGH, 4 MEDIUM, 2 LOW)
+
+
+RECOMMENDED FIX ORDER:
+================================================================================
+1. Fix Bug #1 (Logistics tracking) - BLOCKS all tracking functionality
+2. Fix Bug #2 (Warehouse null conversion) - BREAKS inventory for variantless products
+3. Fix Bug #3, #4, #5, #6 (High priority) - Core logic failures
+4. Fix Bug #7-#10 (Medium priority) - Data consistency issues
+5. Fix Bug #11-#12 (Low priority) - Robustness improvements
+
+Estimated total fix time: 7-11 hours
+
+================================================================================
