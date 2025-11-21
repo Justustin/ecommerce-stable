@@ -150,18 +150,16 @@ Delivery → Wallet Credits → Withdrawals → Settlements
 
 ```json
 {
-  "user_id": "550e8400-e29b-41d4-a716-446655440002",
+  "userId": "550e8400-e29b-41d4-a716-446655440002",
   "label": "Home",
-  "recipient_name": "John Doe",
-  "phone": "+6281234567891",
-  "street": "Jl. Sudirman No. 45",
-  "city": "Jakarta Selatan",
+  "recipientName": "John Doe",
+  "phoneNumber": "+6281234567891",
   "province": "DKI Jakarta",
-  "postal_code": "12190",
-  "country": "Indonesia",
-  "latitude": -6.2088,
-  "longitude": 106.8456,
-  "is_default": true
+  "city": "Jakarta Selatan",
+  "district": "Kebayoran Baru",
+  "postalCode": "12190",
+  "addressLine": "Jl. Sudirman No. 45",
+  "notes": "Near mall"
 }
 ```
 
