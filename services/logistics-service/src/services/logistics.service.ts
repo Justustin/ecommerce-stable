@@ -48,6 +48,18 @@ export class LogisticsService {
     }
   }
 
+  // Helper method to send notification via notification-service API
+  private async sendNotification(data: {
+    userId: string;
+    type: string;
+    title: string;
+    message: string;
+    actionUrl: string;
+    relatedId: string;
+  }): Promise<void> {
+    await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, data);
+  }
+
   async getShippingRates(data: GetRatesDTO): Promise<RatesResponse> {
     let items: any[] = [];
     let destinationPostalCode = data.destinationPostalCode;
@@ -472,7 +484,7 @@ export class LogisticsService {
 
       const notificationType = notificationTypeMap[status] || 'shipped';
 
-      await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, {
+      await this.sendNotification({
         userId: userId,
         type: notificationType,
         title: `Order ${status.replace(/_/g, ' ')}`,
