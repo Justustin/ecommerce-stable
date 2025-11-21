@@ -563,4 +563,11 @@ export class GroupBuyingRepository {
     }
   });
 }
+
+  async linkParticipantToOrder(participantId: string, orderId: string) {
+    return this.prisma.group_participants.update({
+      where: { id: participantId },
+      data: { order_id: orderId }
+    });
+  }
 }

@@ -240,4 +240,29 @@ export class GroupBuyingController {
       res.status(400).json({ error: error.message });
     }
   };
+
+  // Internal API for service-to-service communication
+  linkParticipantToOrder = async (req: Request, res: Response) => {
+    try {
+      const { participantId, orderId } = req.body;
+
+      if (!participantId || !orderId) {
+        return res.status(400).json({
+          success: false,
+          error: 'participantId and orderId are required'
+        });
+      }
+
+      const result = await this.service.linkParticipantToOrder(participantId, orderId);
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  };
 }

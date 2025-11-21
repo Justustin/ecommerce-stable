@@ -1,13 +1,16 @@
 import { prisma } from '@repo/database';
-import { 
-  CreateOrderDTO, 
-  UpdateOrderStatusDTO, 
+import {
+  CreateOrderDTO,
+  UpdateOrderStatusDTO,
   CreateBulkOrdersDTO,
-  OrderFilters, 
+  OrderFilters,
   PaginatedResponse,
   ShippingAddressDTO
 } from '../types';
 import { OrderUtils } from '../utils/order.utils';
+import axios from 'axios';
+
+const GROUP_BUYING_SERVICE_URL = process.env.GROUP_BUYING_SERVICE_URL || 'http://localhost:3004';
 
 export class OrderRepository {
   private utils: OrderUtils;
@@ -146,11 +149,15 @@ export class OrderRepository {
         }
       });
 
-      // Link order to group participant
-      await prisma.group_participants.updateMany({
-        where: { id: participant.participantId },
-        data: { order_id: order.id }
-      });
+      // Link order to group participant via API
+      try {
+        await axios.post(`${GROUP_BUYING_SERVICE_URL}/api/group-buying/participants/link-order`, {
+          participantId: participant.participantId,
+          orderId: order.id
+        });
+      } catch (linkError: any) {
+        console.error(`Failed to link participant ${participant.participantId} to order:`, linkError.message);
+      }
 
       orders.push(order);
       

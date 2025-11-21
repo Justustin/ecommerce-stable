@@ -14,6 +14,7 @@ router.post("/sendOTP", controller.sendOTP);
 
 // Internal API for service-to-service communication
 router.get("/users/:id", controller.getUserById);
+router.post("/users/batch", controller.getUsersByIds);
 
 
 

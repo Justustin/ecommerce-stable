@@ -1,6 +1,9 @@
 // src/repositories/notification.repository.ts
 import { prisma } from '@repo/database';
 import { CreateNotificationDTO, NotificationFilters, PaginatedResponse } from '../types';
+import axios from 'axios';
+
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 
 export class NotificationRepository {
   /**
@@ -165,30 +168,43 @@ export class NotificationRepository {
   }
 
   /**
-   * Get user phone number for WhatsApp
+   * Get user phone number for WhatsApp via auth-service API
    */
   async getUserPhone(userId: string): Promise<string | null> {
-    const user = await prisma.users.findUnique({
-      where: { id: userId },
-      select: { phone_number: true }
-    });
-    return user?.phone_number || null;
+    try {
+      const response = await axios.get(`${AUTH_SERVICE_URL}/api/auth/users/${userId}`);
+      if (response.data.success && response.data.data) {
+        return response.data.data.phoneNumber || null;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to fetch user phone for ${userId}:`, error);
+      return null;
+    }
   }
 
   /**
-   * Get multiple users' phone numbers
+   * Get multiple users' phone numbers via auth-service API
    */
   async getUserPhones(userIds: string[]): Promise<Map<string, string>> {
-    const users = await prisma.users.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, phone_number: true }
-    });
-    
     const phoneMap = new Map<string, string>();
-    users.forEach(user => {
-      phoneMap.set(user.id, user.phone_number);
-    });
-    
+
+    try {
+      const response = await axios.post(`${AUTH_SERVICE_URL}/api/auth/users/batch`, {
+        ids: userIds
+      });
+
+      if (response.data.success && response.data.data) {
+        response.data.data.forEach((user: any) => {
+          if (user.phoneNumber) {
+            phoneMap.set(user.userId, user.phoneNumber);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch user phones:', error);
+    }
+
     return phoneMap;
   }
 }

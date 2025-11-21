@@ -132,6 +132,31 @@ export class AuthController {
         }
     }
 
+    getUsersByIds = async (req: Request, res: Response) => {
+        try {
+            const { ids } = req.body;
+
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Array of user IDs is required"
+                });
+            }
+
+            const users = await this.service.findUsersByIds(ids);
+
+            return res.json({
+                success: true,
+                data: users
+            });
+        } catch (error: any) {
+            return res.status(500).json({
+                success: false,
+                error: error.message || "Internal server error"
+            });
+        }
+    }
+
     refresh = async (req: Request, res: Response) => {
         try {
             const refreshToken = req.cookies.refreshToken;

@@ -23,6 +23,25 @@ export default class UserRepository {
         }
     }
 
+    // Get multiple users by IDs
+    async findByIds(ids: string[]) {
+        try {
+            return prisma.users.findMany({
+                where: { id: { in: ids } },
+                select: {
+                    id: true,
+                    phone_number: true,
+                    email: true,
+                    first_name: true,
+                    last_name: true,
+                    role: true
+                }
+            });
+        } catch(error) {
+            throw error;
+        }
+    }
+
     //for login
     async findByPhoneNumber(phoneNumber: string) {
         try {

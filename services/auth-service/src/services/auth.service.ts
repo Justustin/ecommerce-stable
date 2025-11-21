@@ -58,6 +58,23 @@ export default class AuthService {
         }
     }
 
+    async findUsersByIds(ids: string[]) {
+        try {
+            const users = await this.user_repository.findByIds(ids);
+
+            return users.map(user => ({
+                userId: user.id,
+                phoneNumber: user.phone_number,
+                email: user.email,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                role: user.role
+            }));
+        } catch {
+            return [];
+        }
+    }
+
     async verifyUser(phoneNumber: string, password: string) {
             
         try {

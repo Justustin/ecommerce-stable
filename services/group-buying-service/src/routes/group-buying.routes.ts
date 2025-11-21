@@ -833,6 +833,16 @@ router.get(
  */
 router.delete('/:id', [param('id').isUUID()], controller.deleteSession);
 
+// Internal API for service-to-service communication
+router.post(
+  '/participants/link-order',
+  [
+    body('participantId').isUUID().withMessage('Invalid participant ID'),
+    body('orderId').isUUID().withMessage('Invalid order ID'),
+  ],
+  controller.linkParticipantToOrder
+);
+
 export default router;
 
 // Placeholder for schemas (to be defined in components section of OpenAPI spec)

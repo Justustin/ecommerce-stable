@@ -1684,4 +1684,11 @@ export class GroupBuyingService {
     });
   }
 
+  /**
+   * Link a participant to an order (called by order-service)
+   */
+  async linkParticipantToOrder(participantId: string, orderId: string) {
+    return this.repository.linkParticipantToOrder(participantId, orderId);
+  }
+
 }
