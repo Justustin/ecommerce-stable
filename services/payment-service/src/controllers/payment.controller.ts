@@ -98,6 +98,41 @@ export class PaymentController {
     }
   };
 
+  // Create bot payment record for platform accounting
+  createBotPayment = async (req: Request, res: Response) => {
+    try {
+      const { userId, groupSessionId, participantId, paymentReference } = req.body;
+
+      const { prisma } = await import('@repo/database');
+
+      const payment = await prisma.payments.create({
+        data: {
+          user_id: userId,
+          group_session_id: groupSessionId,
+          participant_id: participantId,
+          order_amount: 0,
+          total_amount: 0,
+          payment_gateway_fee: 0,
+          payment_method: 'platform_bot',
+          payment_status: 'paid',
+          is_in_escrow: false,
+          paid_at: new Date(),
+          payment_reference: paymentReference
+        }
+      });
+
+      res.status(201).json({
+        success: true,
+        data: { payment }
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  };
+
   refundSession = async (req: Request, res: Response) => {
     try {
       const results = await this.refundService.refundSession(req.body.groupSessionId);

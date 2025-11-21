@@ -20,6 +20,14 @@ router.post('/release-escrow', [
 
 router.post('/escrow', controller.createEscrowPayment.bind(controller));
 
+// Internal endpoint for bot payment records (platform accounting)
+router.post('/bot', [
+  body('userId').isUUID(),
+  body('groupSessionId').isUUID(),
+  body('participantId').isUUID(),
+  body('paymentReference').isString()
+], controller.createBotPayment);
+
 router.post('/refund-session', [
   body('groupSessionId').isUUID()
 ], controller.refundSession);

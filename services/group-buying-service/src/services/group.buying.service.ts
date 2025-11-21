@@ -10,12 +10,174 @@ import {
   GroupSessionFilters
 } from '../types'
 
+// Service URLs
+const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
+const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
+const WALLET_SERVICE_URL = process.env.WALLET_SERVICE_URL || 'http://localhost:3010';
+const WAREHOUSE_SERVICE_URL = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3011';
+const PRODUCT_SERVICE_URL = process.env.PRODUCT_SERVICE_URL || 'http://localhost:3003';
+
 export class GroupBuyingService {
     private repository: GroupBuyingRepository;
 
     constructor() {
         this.repository = new GroupBuyingRepository()
     }
+
+    // ============= API Helper Methods =============
+
+    // Payment Service helpers
+    private async createEscrowPayment(data: {
+        userId: string;
+        groupSessionId: string;
+        participantId: string;
+        amount: number;
+        expiresAt: string;
+        factoryId: string;
+    }): Promise<any> {
+        const response = await retryWithBackoff(
+            () => axios.post(`${PAYMENT_SERVICE_URL}/api/payments/escrow`, {
+                ...data,
+                isEscrow: true
+            }, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000
+            }),
+            { maxRetries: 3, initialDelay: 1000 }
+        );
+        return response.data.data;
+    }
+
+    private async releaseEscrow(groupSessionId: string): Promise<void> {
+        await retryWithBackoff(
+            () => axios.post(`${PAYMENT_SERVICE_URL}/api/payments/release-escrow`, {
+                groupSessionId
+            }, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000
+            }),
+            { maxRetries: 3, initialDelay: 1000 }
+        );
+    }
+
+    private async refundSession(groupSessionId: string, reason: string): Promise<void> {
+        await retryWithBackoff(
+            () => axios.post(`${PAYMENT_SERVICE_URL}/api/payments/refund-session`, {
+                groupSessionId,
+                reason
+            }, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000
+            }),
+            { maxRetries: 3, initialDelay: 2000 }
+        );
+    }
+
+    private async createBotPayment(data: {
+        userId: string;
+        groupSessionId: string;
+        participantId: string;
+        paymentReference: string;
+    }): Promise<any> {
+        try {
+            const response = await axios.post(`${PAYMENT_SERVICE_URL}/api/payments/bot`, {
+                userId: data.userId,
+                groupSessionId: data.groupSessionId,
+                participantId: data.participantId,
+                orderAmount: 0,
+                totalAmount: 0,
+                paymentMethod: 'platform_bot',
+                paymentStatus: 'paid',
+                isInEscrow: false,
+                paymentReference: data.paymentReference
+            }, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000
+            });
+            return response.data;
+        } catch (error: any) {
+            logger.error('Failed to create bot payment via API', {
+                error: error.message
+            });
+            throw error;
+        }
+    }
+
+    // Order Service helpers
+    private async createBulkOrders(groupSessionId: string, participants: Array<{
+        userId: string;
+        participantId: string;
+        productId: string;
+        variantId?: string;
+        quantity: number;
+        unitPrice: number;
+    }>): Promise<any> {
+        const response = await retryWithBackoff(
+            async () => {
+                const res = await fetch(`${ORDER_SERVICE_URL}/api/orders/bulk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ groupSessionId, participants })
+                });
+
+                if (!res.ok) {
+                    const error = await res.json().catch(() => ({ message: res.statusText }));
+                    throw new Error(error.message || `HTTP ${res.status}`);
+                }
+
+                return res;
+            },
+            { maxRetries: 3, initialDelay: 2000 }
+        );
+        return response.json();
+    }
+
+    // Wallet Service helpers
+    private async creditWallet(data: {
+        userId: string;
+        amount: number;
+        description: string;
+        reference: string;
+        metadata?: any;
+    }): Promise<void> {
+        await axios.post(`${WALLET_SERVICE_URL}/api/wallet/credit`, data, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+        });
+    }
+
+    // Warehouse Service helpers
+    private async fulfillBundleDemand(data: {
+        productId: string;
+        variantId: string | null;
+        quantity: number;
+        wholesaleUnit: number;
+    }): Promise<any> {
+        const response = await axios.post(
+            `${WAREHOUSE_SERVICE_URL}/api/warehouse/fulfill-bundle-demand`,
+            data,
+            {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000
+            }
+        );
+        return response.data;
+    }
+
+    // Product Service helpers
+    private async fetchProduct(productId: string): Promise<any> {
+        try {
+            const response = await axios.get(`${PRODUCT_SERVICE_URL}/api/products/id/${productId}`);
+            return response.data.data || response.data;
+        } catch (error: any) {
+            if (error.response?.status === 404) {
+                throw new Error('Product not found');
+            }
+            throw new Error(`Failed to fetch product: ${error.message}`);
+        }
+    }
+
+    // ============= End API Helper Methods =============
 
     async createSession(data: CreateGroupSessionDTO) {
         if(data.targetMoq < 2) {
@@ -207,31 +369,14 @@ export class GroupBuyingService {
 
         let paymentResult;
         try {
-            const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-
-            const paymentData = {
+            paymentResult = await this.createEscrowPayment({
               userId: data.userId,
               groupSessionId: data.groupSessionId,
               participantId: participant.id,
               amount: data.totalPrice,
               expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-              isEscrow: true,
               factoryId: session.factory_id
-            };
-
-            // CRITICAL FIX #3: Add retry logic with exponential backoff
-            const response = await retryWithBackoff(
-              () => axios.post(`${paymentServiceUrl}/api/payments/escrow`, paymentData, {
-                headers: { 'Content-Type': 'application/json' },
-                timeout: 10000  // 10 second timeout
-              }),
-              {
-                maxRetries: 3,
-                initialDelay: 1000
-              }
-            );
-
-            paymentResult = response.data.data;
+            });
           } catch (error: any) {
             // CRITICAL FIX #4: Proper rollback error handling with logging
             try {
@@ -434,7 +579,6 @@ export class GroupBuyingService {
       throw new Error('Session not found');
     }
 
-    const warehouseServiceUrl = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3011';
     const { prisma } = await import('@repo/database');
 
     // Define type for warehouse response
@@ -472,24 +616,17 @@ export class GroupBuyingService {
       // Call warehouse /fulfill-bundle-demand for each variant
       // Warehouse service will handle stock check and factory WhatsApp
       for (const [variantId, quantity] of Object.entries(variantDemands)) {
-        const response = await axios.post(
-          `${warehouseServiceUrl}/api/warehouse/fulfill-bundle-demand`,
-          {
-            productId: session.product_id,
-            variantId: variantId === 'base' ? null : variantId,
-            quantity,
-            wholesaleUnit: grosirUnitSize
-          },
-          {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 10000
-          }
-        );
+        const warehouseResponse = await this.fulfillBundleDemand({
+          productId: session.product_id,
+          variantId: variantId === 'base' ? null : variantId,
+          quantity,
+          wholesaleUnit: grosirUnitSize
+        });
 
         results.push({
           variantId,
           quantity,
-          ...response.data
+          ...warehouseResponse
         });
       }
 
@@ -589,22 +726,7 @@ export class GroupBuyingService {
     await this.repository.markSuccess(sessionId);
 
     try {
-      const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-
-      // MAJOR FIX: Add retry logic for escrow release
-      await retryWithBackoff(
-        () => axios.post(`${paymentServiceUrl}/api/payments/release-escrow`, {
-          groupSessionId: sessionId
-        }, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 10000
-        }),
-        {
-          maxRetries: 3,
-          initialDelay: 1000
-        }
-      );
-
+      await this.releaseEscrow(sessionId);
       logger.info('Escrow released successfully', { sessionId });
     } catch (error: any) {
       logger.error(`Failed to release escrow for session ${sessionId}`, {
@@ -788,21 +910,13 @@ export class GroupBuyingService {
           }
         });
 
-        // Create bot payment record
+        // Create bot payment record via API
         try {
-          await prisma.payments.create({
-            data: {
-              user_id: botUserId,
-              group_session_id: session.id,
-              participant_id: botParticipant.id,
-              order_amount: 0,  // No real money - bot is illusion
-              total_amount: 0,  // Bot doesn't pay
-              payment_method: 'platform_bot',
-              payment_status: 'paid',
-              is_in_escrow: false,  // Not in escrow - no real payment
-              paid_at: new Date(),
-              payment_reference: `BOT-PREEMPTIVE-${session.id}-${botParticipant.id}`
-            }
+          await this.createBotPayment({
+            userId: botUserId,
+            groupSessionId: session.id,
+            participantId: botParticipant.id,
+            paymentReference: `BOT-PREEMPTIVE-${session.id}-${botParticipant.id}`
           });
 
           logger.info('Bot created preemptively (near-expiration)', {
@@ -964,26 +1078,18 @@ export class GroupBuyingService {
                 data: { bot_participant_id: botParticipant.id }
               });
 
-              // Create payment record for bot participant (for audit/accounting)
+              // Create payment record for bot participant via API (for audit/accounting)
               try {
-                const botPayment = await prisma.payments.create({
-                  data: {
-                    user_id: botUserId,
-                    group_session_id: session.id,
-                    participant_id: botParticipant.id,
-                    order_amount: 0,  // No real money - bot is illusion
-                    total_amount: 0,  // Bot doesn't pay
-                    payment_method: 'platform_bot',
-                    payment_status: 'paid',
-                    is_in_escrow: false,  // Not in escrow - no real payment
-                    paid_at: new Date(),
-                    payment_reference: `BOT-${session.id}-${botParticipant.id}`
-                  }
+                await this.createBotPayment({
+                  userId: botUserId,
+                  groupSessionId: session.id,
+                  participantId: botParticipant.id,
+                  paymentReference: `BOT-${session.id}-${botParticipant.id}`
                 });
 
                 logger.info('Bot payment record created', {
                   sessionId: session.id,
-                  paymentId: botPayment.id,
+                  participantId: botParticipant.id,
                   amount: 0
                 });
               } catch (error: any) {
@@ -1066,13 +1172,11 @@ export class GroupBuyingService {
 
       // Issue refunds to all REAL participants (not bot)
       if (refundPerUnit > 0) {
-        const walletServiceUrl = process.env.WALLET_SERVICE_URL || 'http://localhost:3010';
-
         for (const participant of realParticipants) {
           const totalRefund = refundPerUnit * participant.quantity;
 
           try {
-            await axios.post(`${walletServiceUrl}/api/wallet/credit`, {
+            await this.creditWallet({
               userId: participant.user_id,
               amount: totalRefund,
               description: `Group buying refund - Session ${fullSession.session_code} (Tier ${finalTier}%)`,
@@ -1085,9 +1189,6 @@ export class GroupBuyingService {
                 refundPerUnit: refundPerUnit,
                 quantity: participant.quantity
               }
-            }, {
-              headers: { 'Content-Type': 'application/json' },
-              timeout: 10000
             });
 
             logger.info('Refund issued to participant', {
@@ -1132,8 +1233,6 @@ export class GroupBuyingService {
 
       // Create bulk orders via order-service
       try {
-        const orderServiceUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
-
         // CRITICAL FIX #4: Filter to only PAID real participants
         // Exclude bots AND ensure participant has paid
         const paidRealParticipants = fullSession.group_participants.filter(p => {
@@ -1183,39 +1282,17 @@ export class GroupBuyingService {
           totalParticipants: fullSession.group_participants.length
         });
 
-        // MAJOR FIX: Add retry logic for order creation
-        const response = await retryWithBackoff(
-          async () => {
-            const res = await fetch(`${orderServiceUrl}/api/orders/bulk`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                groupSessionId: session.id,
-                participants: paidRealParticipants.map(p => ({
-                  userId: p.user_id,
-                  participantId: p.id,
-                  productId: fullSession.product_id,
-                  variantId: p.variant_id || undefined,
-                  quantity: p.quantity,
-                  unitPrice: Number(p.unit_price)  // Price they paid at their tier
-                }))
-              })
-            });
-
-            if (!res.ok) {
-              const error = await res.json().catch(() => ({ message: res.statusText }));
-              throw new Error(error.message || `HTTP ${res.status}`);
-            }
-
-            return res;
-          },
-          {
-            maxRetries: 3,
-            initialDelay: 2000
-          }
+        const orderResult = await this.createBulkOrders(
+          session.id,
+          paidRealParticipants.map(p => ({
+            userId: p.user_id,
+            participantId: p.id,
+            productId: fullSession.product_id,
+            variantId: p.variant_id || undefined,
+            quantity: p.quantity,
+            unitPrice: Number(p.unit_price)
+          }))
         );
-
-        const orderResult = await response.json();
         logger.info(`Created orders for session ${session.session_code}`, {
           sessionId: session.id,
           ordersCreated: orderResult.ordersCreated
@@ -1262,22 +1339,7 @@ export class GroupBuyingService {
       // TODO: Trigger refunds via payment-service
 
       try {
-        const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-
-        // MAJOR FIX: Add retry logic for refunds
-        await retryWithBackoff(
-          () => axios.post(`${paymentServiceUrl}/api/payments/refund-session`, {
-            groupSessionId: session.id,
-            reason: 'Group buying session failed to reach MOQ'
-          }, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 10000
-          }),
-          {
-            maxRetries: 3,
-            initialDelay: 2000
-          }
-        );
+        await this.refundSession(session.id, 'Group buying session failed to reach MOQ');
 
         logger.info('Refund initiated for failed session', {
           sessionId: session.id,
@@ -1312,15 +1374,11 @@ export class GroupBuyingService {
    */
   private async createNextDaySession(expiredSession: any) {
     try {
-      const { prisma } = await import('@repo/database');
-
-      // Get product details to recreate session
-      const product = await prisma.products.findUnique({
-        where: { id: expiredSession.product_id },
-        include: { factories: true }
-      });
-
-      if (!product) {
+      // Get product details to recreate session via API
+      let product;
+      try {
+        product = await this.fetchProduct(expiredSession.product_id);
+      } catch (error) {
         logger.error('Product not found for expired session', {
           sessionId: expiredSession.id,
           productId: expiredSession.product_id
