@@ -1,14 +1,16 @@
 import express from 'express';
 import { prisma } from '@repo/database';
 import dotenv from 'dotenv';
-import { router } from './routes/index'
+import { router } from './routes/index';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-app.use('/api/auth', router)
+app.use('/api/auth', router);
+app.use('/api/admin', adminRoutes);
 // app.get('/health', (req, res) => {
 //   res.json({ status: 'ok', service: 'auth-service' });
 // });
