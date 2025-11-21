@@ -129,7 +129,7 @@ Delivery → Wallet Credits → Withdrawals → Settlements
 }
 ```
 
-**Save the response:** Note the `id` and `code` for later use.
+**Save the response:** Note the `id` and `factoryCode` for later use.
 
 ### 1.2 Verify Factory (Admin Action)
 
@@ -137,8 +137,8 @@ Delivery → Wallet Credits → Withdrawals → Settlements
 
 ```json
 {
-  "verification_status": "verified",
-  "verified_by": "admin-user-id"
+  "verificationStatus": "verified",
+  "verifiedBy": "550e8400-e29b-41d4-a716-446655440099"
 }
 ```
 
@@ -172,9 +172,9 @@ Delivery → Wallet Credits → Withdrawals → Settlements
 ```json
 {
   "name": "Fashion",
-  "slug": "fashion",
   "description": "All fashion items",
-  "image_url": "https://example.com/fashion.jpg"
+  "iconUrl": "https://example.com/fashion.jpg",
+  "displayOrder": 1
 }
 ```
 
@@ -192,70 +192,70 @@ Delivery → Wallet Credits → Withdrawals → Settlements
 
 ```json
 {
-  "factory_id": "YOUR_FACTORY_ID",
-  "category_id": "YOUR_CATEGORY_ID",
+  "factoryId": "YOUR_FACTORY_ID",
+  "categoryId": "YOUR_CATEGORY_ID",
+  "sku": "TSHIRT-PREMIUM-001",
   "name": "Premium Cotton T-Shirt",
-  "slug": "premium-cotton-tshirt",
   "description": "High quality cotton t-shirt from local factory",
-  "base_price": 150000,
+  "basePrice": 150000,
+  "costPrice": 80000,
+  "moq": 100,
+  "groupDurationHours": 168,
+  "stockQuantity": 500,
   "weight": 200,
-  "dimensions": {
-    "length": 30,
-    "width": 25,
-    "height": 2
-  },
-  "variants": [
-    {
-      "sku": "TSHIRT-S-BLACK",
-      "name": "Small - Black",
-      "price": 150000,
-      "stock_quantity": 100,
-      "attributes": {
-        "size": "S",
-        "color": "Black"
-      }
-    },
-    {
-      "sku": "TSHIRT-M-BLACK",
-      "name": "Medium - Black",
-      "price": 155000,
-      "stock_quantity": 150,
-      "attributes": {
-        "size": "M",
-        "color": "Black"
-      }
-    },
-    {
-      "sku": "TSHIRT-L-BLACK",
-      "name": "Large - Black",
-      "price": 160000,
-      "stock_quantity": 100,
-      "attributes": {
-        "size": "L",
-        "color": "Black"
-      }
-    }
-  ],
-  "images": [
-    {
-      "url": "https://example.com/tshirt-1.jpg",
-      "alt_text": "T-Shirt Front View",
-      "is_primary": true,
-      "sort_order": 1
-    }
-  ]
+  "lengthCm": 30,
+  "widthCm": 25,
+  "heightCm": 2,
+  "primaryImageUrl": "https://example.com/tshirt-1.jpg"
 }
 ```
 
-**Save the response:** Note `id` and variant `id`s.
+**Save the response:** Note the `id` for variant creation.
 
-### 2.2 Publish Product
+### 2.2 Add Variants to Product
+
+**Endpoint:** `POST /api/products/{id}/variants`
+
+**Variant 1 - Small:**
+```json
+{
+  "productId": "YOUR_PRODUCT_ID",
+  "sku": "TSHIRT-S-BLACK",
+  "variantName": "Small - Black",
+  "priceAdjustment": 0,
+  "stockQuantity": 100
+}
+```
+
+**Variant 2 - Medium:**
+```json
+{
+  "productId": "YOUR_PRODUCT_ID",
+  "sku": "TSHIRT-M-BLACK",
+  "variantName": "Medium - Black",
+  "priceAdjustment": 5000,
+  "stockQuantity": 150
+}
+```
+
+**Variant 3 - Large:**
+```json
+{
+  "productId": "YOUR_PRODUCT_ID",
+  "sku": "TSHIRT-L-BLACK",
+  "variantName": "Large - Black",
+  "priceAdjustment": 10000,
+  "stockQuantity": 100
+}
+```
+
+### 2.3 Publish Product
 
 **Endpoint:** `PATCH /api/products/{id}/publish`
 
 This changes status from `draft` to `active`.
 
-### 2.3 Verify Product Created
+### 2.4 Verify Product Created
 
 **Endpoint:** `GET /api/products/{slug}`
 
@@ -273,21 +273,20 @@ Use slug: `premium-cotton-tshirt`
 
 ```json
 {
-  "product_id": "YOUR_PRODUCT_ID",
-  "factory_id": "YOUR_FACTORY_ID",
-  "target_moq": 100,
-  "price_tier_25": 140000,
-  "price_tier_50": 130000,
-  "price_tier_75": 120000,
-  "price_tier_100": 110000,
-  "start_time": "2025-11-20T10:00:00Z",
-  "end_time": "2025-11-27T23:59:59Z",
-  "estimated_completion_date": "2025-12-10",
-  "warehouse_id": "WAREHOUSE_ID_IF_AVAILABLE"
+  "productId": "YOUR_PRODUCT_ID",
+  "factoryId": "YOUR_FACTORY_ID",
+  "targetMoq": 100,
+  "groupPrice": 140000,
+  "priceTier25": 140000,
+  "priceTier50": 130000,
+  "priceTier75": 120000,
+  "priceTier100": 110000,
+  "endTime": "2025-11-27T23:59:59Z",
+  "estimatedCompletionDate": "2025-12-10"
 }
 ```
 
-**Save the response:** Note `id` and `session_code`.
+**Save the response:** Note `id` and `sessionCode`.
 
 ### 3.2 Get Session Details
 
@@ -302,27 +301,33 @@ Verify session status is `active` and current tier pricing.
 **Participant 1 (25 units):**
 ```json
 {
-  "user_id": "550e8400-e29b-41d4-a716-446655440002",
+  "userId": "550e8400-e29b-41d4-a716-446655440002",
   "quantity": 25,
-  "variant_id": "YOUR_VARIANT_ID"
+  "variantId": "YOUR_VARIANT_ID",
+  "unitPrice": 140000,
+  "totalPrice": 3500000
 }
 ```
 
 **Participant 2 (25 units):**
 ```json
 {
-  "user_id": "550e8400-e29b-41d4-a716-446655440003",
+  "userId": "550e8400-e29b-41d4-a716-446655440003",
   "quantity": 25,
-  "variant_id": "YOUR_VARIANT_ID"
+  "variantId": "YOUR_VARIANT_ID",
+  "unitPrice": 140000,
+  "totalPrice": 3500000
 }
 ```
 
 **Participant 3 (50 units) - Reaches MOQ:**
 ```json
 {
-  "user_id": "550e8400-e29b-41d4-a716-446655440004",
+  "userId": "550e8400-e29b-41d4-a716-446655440004",
   "quantity": 50,
-  "variant_id": "YOUR_VARIANT_ID"
+  "variantId": "YOUR_VARIANT_ID",
+  "unitPrice": 110000,
+  "totalPrice": 5500000
 }
 ```
 
@@ -331,9 +336,9 @@ Verify session status is `active` and current tier pricing.
 **Endpoint:** `GET /api/group-buying/{id}/stats`
 
 Verify:
-- `total_quantity` = 100
-- `current_tier` = 100
-- `moq_reached` = true
+- `totalQuantity` = 100
+- `currentTier` = 100
+- `moqReached` = true
 
 ### 3.5 View All Participants
 
@@ -351,7 +356,7 @@ Verify:
 
 ```json
 {
-  "group_session_id": "YOUR_SESSION_ID"
+  "groupSessionId": "YOUR_SESSION_ID"
 }
 ```
 
@@ -359,11 +364,11 @@ This creates individual orders for each participant. **Save all order IDs.**
 
 ### 4.2 View Created Orders
 
-**Endpoint:** `GET /api/orders?group_session_id=YOUR_SESSION_ID`
+**Endpoint:** `GET /api/orders?groupSessionId=YOUR_SESSION_ID`
 
 Each order should have:
 - Status: `pending_payment`
-- `is_group_buying`: true
+- `isGroupBuying`: true
 - Correct pricing based on tier reached
 
 ### 4.3 Get Specific Order Details
@@ -378,17 +383,18 @@ Each order should have:
 
 ```json
 {
-  "order_id": "YOUR_ORDER_ID",
-  "user_id": "550e8400-e29b-41d4-a716-446655440002",
-  "payment_method": "bank_transfer",
-  "amount": 2750000
+  "orderId": "YOUR_ORDER_ID",
+  "userId": "550e8400-e29b-41d4-a716-446655440002",
+  "amount": 3500000,
+  "paymentMethod": "bank_transfer",
+  "isEscrow": true
 }
 ```
 
 Response includes:
-- `payment_url` - Xendit checkout URL
-- `payment_code` - Unique payment code
-- `is_in_escrow` - true (for group buying)
+- `paymentUrl` - Xendit checkout URL
+- `paymentCode` - Unique payment code
+- `isInEscrow` - true (for group buying)
 
 **Repeat for all orders in the session.**
 
@@ -419,7 +425,7 @@ Order status should be `paid`.
 
 ```json
 {
-  "group_session_id": "YOUR_SESSION_ID"
+  "groupSessionId": "YOUR_SESSION_ID"
 }
 ```
 
@@ -435,20 +441,14 @@ Order status should be `paid`.
 
 ```json
 {
-  "origin_postal_code": "40123",
-  "destination_postal_code": "12190",
-  "items": [
-    {
-      "name": "Premium Cotton T-Shirt",
-      "quantity": 25,
-      "weight": 200,
-      "value": 110000
-    }
-  ]
+  "orderId": "YOUR_ORDER_ID",
+  "originPostalCode": "40123",
+  "destinationPostalCode": "12190",
+  "couriers": ["jne", "jnt", "sicepat"]
 }
 ```
 
-Returns available couriers with rates (JNE, JNT, SiCepat, etc.).
+Returns available couriers with rates.
 
 ### 5.2 Update Order with Shipping Cost
 
@@ -458,8 +458,8 @@ Returns available couriers with rates (JNE, JNT, SiCepat, etc.).
 
 ```json
 {
-  "shipping_cost": 50000,
-  "tax_amount": 5000
+  "shippingCost": 50000,
+  "taxAmount": 5000
 }
 ```
 
@@ -471,34 +471,34 @@ Returns available couriers with rates (JNE, JNT, SiCepat, etc.).
 
 ```json
 {
-  "order_id": "YOUR_ORDER_ID",
-  "courier_code": "jne",
-  "courier_service": "REG",
-  "origin": {
-    "name": "Test Factory",
-    "phone": "+6281234567890",
-    "address": "Jl. Industri No. 123",
-    "city": "Bandung",
-    "postal_code": "40123"
-  },
-  "destination": {
-    "name": "John Doe",
-    "phone": "+6281234567891",
-    "address": "Jl. Sudirman No. 45",
-    "city": "Jakarta Selatan",
-    "postal_code": "12190"
-  },
+  "orderId": "YOUR_ORDER_ID",
+  "courierCompany": "jne",
+  "courierType": "REG",
+  "courierInsurance": 50000,
+  "shipperContactName": "Laku Warehouse",
+  "shipperContactPhone": "+6281234567890",
+  "shipperOrganization": "Laku Platform",
+  "originContactName": "Test Factory",
+  "originContactPhone": "+6281234567890",
+  "originAddress": "Jl. Industri No. 123",
+  "originPostalCode": "40123",
+  "destinationContactName": "John Doe",
+  "destinationContactPhone": "+6281234567891",
+  "destinationAddress": "Jl. Sudirman No. 45",
+  "destinationPostalCode": "12190",
+  "deliveryType": "now",
   "items": [
     {
       "name": "Premium Cotton T-Shirt",
       "quantity": 25,
-      "weight": 200
+      "weight": 200,
+      "value": 110000
     }
   ]
 }
 ```
 
-**Save the `tracking_number`.**
+**Save the `trackingNumber`.**
 
 ### 5.4 Track Shipment
 
@@ -511,10 +511,10 @@ Returns available couriers with rates (JNE, JNT, SiCepat, etc.).
 ```json
 {
   "event": "tracking.updated",
-  "tracking_id": "BITESHIP_TRACKING_ID",
+  "trackingId": "BITESHIP_TRACKING_ID",
   "status": "delivered",
-  "courier_tracking_id": "YOUR_TRACKING_NUMBER",
-  "updated_at": "2025-11-25T10:00:00Z"
+  "courierTrackingId": "YOUR_TRACKING_NUMBER",
+  "updatedAt": "2025-11-25T10:00:00Z"
 }
 ```
 
@@ -542,12 +542,12 @@ Returns available couriers with rates (JNE, JNT, SiCepat, etc.).
 
 ```json
 {
-  "user_id": "550e8400-e29b-41d4-a716-446655440002",
+  "userId": "550e8400-e29b-41d4-a716-446655440002",
   "amount": 25000,
   "type": "cashback",
-  "reference_type": "order",
-  "reference_id": "YOUR_ORDER_ID",
-  "description": "Cashback for order ORD-20251120-00001"
+  "description": "Cashback for order ORD-20251120-00001",
+  "referenceType": "order",
+  "referenceId": "YOUR_ORDER_ID"
 }
 ```
 
@@ -561,12 +561,12 @@ Returns available couriers with rates (JNE, JNT, SiCepat, etc.).
 
 ```json
 {
-  "user_id": "550e8400-e29b-41d4-a716-446655440002",
+  "userId": "550e8400-e29b-41d4-a716-446655440002",
   "amount": 20000,
-  "bank_code": "BCA",
-  "bank_name": "Bank Central Asia",
-  "account_number": "1234567890",
-  "account_name": "John Doe"
+  "bankCode": "BCA",
+  "bankName": "Bank Central Asia",
+  "accountNumber": "1234567890",
+  "accountName": "John Doe"
 }
 ```
 
@@ -601,9 +601,9 @@ This processes all pending withdrawals via Xendit disbursement.
 
 ```json
 {
-  "factory_id": "YOUR_FACTORY_ID",
-  "period_start": "2025-11-01T00:00:00Z",
-  "period_end": "2025-11-30T23:59:59Z"
+  "factoryId": "YOUR_FACTORY_ID",
+  "periodStart": "2025-11-01T00:00:00Z",
+  "periodEnd": "2025-11-30T23:59:59Z"
 }
 ```
 
@@ -615,12 +615,12 @@ This processes all pending withdrawals via Xendit disbursement.
 
 ```json
 {
-  "factory_id": "YOUR_FACTORY_ID",
-  "period_start": "2025-11-01T00:00:00Z",
-  "period_end": "2025-11-30T23:59:59Z",
-  "total_amount": 5000000,
-  "platform_fee": 250000,
-  "net_amount": 4750000
+  "factoryId": "YOUR_FACTORY_ID",
+  "periodStart": "2025-11-01T00:00:00Z",
+  "periodEnd": "2025-11-30T23:59:59Z",
+  "totalAmount": 5000000,
+  "platformFee": 250000,
+  "netAmount": 4750000
 }
 ```
 
@@ -706,9 +706,9 @@ Admin:  550e8400-e29b-41d4-a716-446655440099
 
 ```json
 {
-  "name": "Textile Factory Bandung",
-  "code": "FAC-001",
-  "verification_status": "verified"
+  "factoryName": "Textile Factory Bandung",
+  "factoryCode": "FACT-BDG-TST-202411",
+  "verificationStatus": "verified"
 }
 ```
 
