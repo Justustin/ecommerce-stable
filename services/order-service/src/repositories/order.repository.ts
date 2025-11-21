@@ -12,6 +12,22 @@ import axios from 'axios';
 
 const GROUP_BUYING_SERVICE_URL = process.env.GROUP_BUYING_SERVICE_URL || 'http://localhost:3004';
 
+// ============= API Helper Methods =============
+
+// Group Buying Service helper - link participant to order
+async function linkParticipantToOrder(participantId: string, orderId: string): Promise<void> {
+  try {
+    await axios.post(`${GROUP_BUYING_SERVICE_URL}/api/group-buying/participants/link-order`, {
+      participantId,
+      orderId
+    });
+  } catch (error: any) {
+    console.error(`Failed to link participant ${participantId} to order:`, error.message);
+  }
+}
+
+// ============= End API Helper Methods =============
+
 export class OrderRepository {
   private utils: OrderUtils;
 
@@ -150,14 +166,7 @@ export class OrderRepository {
       });
 
       // Link order to group participant via API
-      try {
-        await axios.post(`${GROUP_BUYING_SERVICE_URL}/api/group-buying/participants/link-order`, {
-          participantId: participant.participantId,
-          orderId: order.id
-        });
-      } catch (linkError: any) {
-        console.error(`Failed to link participant ${participant.participantId} to order:`, linkError.message);
-      }
+      await linkParticipantToOrder(participant.participantId, order.id);
 
       orders.push(order);
       

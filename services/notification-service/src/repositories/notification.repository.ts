@@ -5,6 +5,40 @@ import axios from 'axios';
 
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 
+// ============= API Helper Methods =============
+
+// Auth Service helper - fetch single user
+async function fetchUser(userId: string): Promise<any | null> {
+  try {
+    const response = await axios.get(`${AUTH_SERVICE_URL}/api/auth/users/${userId}`);
+    if (response.data.success && response.data.data) {
+      return response.data.data;
+    }
+    return null;
+  } catch (error) {
+    console.error(`Failed to fetch user ${userId}:`, error);
+    return null;
+  }
+}
+
+// Auth Service helper - fetch multiple users
+async function fetchUsersBatch(userIds: string[]): Promise<any[]> {
+  try {
+    const response = await axios.post(`${AUTH_SERVICE_URL}/api/auth/users/batch`, {
+      ids: userIds
+    });
+    if (response.data.success && response.data.data) {
+      return response.data.data;
+    }
+    return [];
+  } catch (error) {
+    console.error('Failed to fetch users batch:', error);
+    return [];
+  }
+}
+
+// ============= End API Helper Methods =============
+
 export class NotificationRepository {
   /**
    * Create a single notification
@@ -171,16 +205,8 @@ export class NotificationRepository {
    * Get user phone number for WhatsApp via auth-service API
    */
   async getUserPhone(userId: string): Promise<string | null> {
-    try {
-      const response = await axios.get(`${AUTH_SERVICE_URL}/api/auth/users/${userId}`);
-      if (response.data.success && response.data.data) {
-        return response.data.data.phoneNumber || null;
-      }
-      return null;
-    } catch (error) {
-      console.error(`Failed to fetch user phone for ${userId}:`, error);
-      return null;
-    }
+    const user = await fetchUser(userId);
+    return user?.phoneNumber || null;
   }
 
   /**
@@ -188,22 +214,13 @@ export class NotificationRepository {
    */
   async getUserPhones(userIds: string[]): Promise<Map<string, string>> {
     const phoneMap = new Map<string, string>();
+    const users = await fetchUsersBatch(userIds);
 
-    try {
-      const response = await axios.post(`${AUTH_SERVICE_URL}/api/auth/users/batch`, {
-        ids: userIds
-      });
-
-      if (response.data.success && response.data.data) {
-        response.data.data.forEach((user: any) => {
-          if (user.phoneNumber) {
-            phoneMap.set(user.userId, user.phoneNumber);
-          }
-        });
+    users.forEach((user: any) => {
+      if (user.phoneNumber) {
+        phoneMap.set(user.userId, user.phoneNumber);
       }
-    } catch (error) {
-      console.error('Failed to fetch user phones:', error);
-    }
+    });
 
     return phoneMap;
   }
