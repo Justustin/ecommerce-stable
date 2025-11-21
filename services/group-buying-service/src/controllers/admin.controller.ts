@@ -229,7 +229,6 @@ export class AdminController {
     try {
       const tolerances = await prisma.grosir_warehouse_tolerance.findMany({
         include: {
-          warehouses: { select: { id: true, warehouse_name: true } },
           products: { select: { id: true, name: true } }
         }
       });
