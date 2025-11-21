@@ -8,7 +8,6 @@ import {
   TrackingInfo,
   RatesResponse
 } from '../types';
-import { prisma } from '@repo/database';
 import axios from 'axios';
 import { shipment_status } from '@repo/database';
 
@@ -22,21 +21,39 @@ export class LogisticsService {
     this.repository = new LogisticsRepository();
   }
 
+  // Helper method to fetch order from order-service API
+  private async fetchOrder(orderId: string): Promise<any> {
+    try {
+      const response = await axios.get(`${ORDER_SERVICE_URL}/api/orders/${orderId}`);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to fetch order');
+      }
+      return response.data.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        throw new Error('Order not found');
+      }
+      throw new Error(`Failed to fetch order: ${error.message}`);
+    }
+  }
+
+  // Helper method to update shipping cost via order-service API
+  private async updateOrderShippingCost(orderId: string, shippingCost: number): Promise<void> {
+    try {
+      await axios.put(`${ORDER_SERVICE_URL}/api/orders/${orderId}/shipping-cost`, {
+        shippingCost
+      });
+    } catch (error: any) {
+      console.error(`Failed to update shipping cost for order ${orderId}:`, error.message);
+    }
+  }
+
   async getShippingRates(data: GetRatesDTO): Promise<RatesResponse> {
     let items: any[] = [];
     let destinationPostalCode = data.destinationPostalCode;
 
     if (data.orderId) {
-      const order = await prisma.orders.findUnique({
-        where: { id: data.orderId },
-        include: {
-          order_items: true
-        }
-      });
-
-      if (!order) {
-        throw new Error('Order not found');
-      }
+      const order = await this.fetchOrder(data.orderId);
 
       let totalWeight = 0;
       let totalValue = 0;
@@ -109,16 +126,7 @@ export class LogisticsService {
   }
 
   async createShipment(data: CreateShipmentDTO) {
-    const order = await prisma.orders.findUnique({
-      where: { id: data.orderId },
-      include: {
-        order_items: true
-      }
-    });
-
-    if (!order) {
-      throw new Error('Order not found');
-    }
+    const order = await this.fetchOrder(data.orderId);
 
     if (order.status !== 'ready_for_pickup' && order.status !== 'picked_up' && order.status !== 'paid' && order.status !== 'processing') {
       throw new Error(`Cannot create shipment for order with status: ${order.status}`);
@@ -253,13 +261,7 @@ export class LogisticsService {
 
     const currentShippingCost = Number(order.shipping_cost || 0);
     if (!order.shipping_cost || currentShippingCost === 0) {
-      await prisma.orders.update({
-        where: { id: data.orderId },
-        data: {
-          shipping_cost: biteshipOrder.price,
-          updated_at: new Date()
-        }
-      });
+      await this.updateOrderShippingCost(data.orderId, biteshipOrder.price);
     }
 
     return shipment;
@@ -362,13 +364,13 @@ export class LogisticsService {
       throw new Error('Shipment not found');
     }
 
-    // Fetch the related order and order_items
-    const order = await prisma.orders.findUnique({
-      where: { id: shipment.order_id },
-      include: {
-        order_items: true
-      }
-    });
+    // Fetch the related order and order_items via API
+    let order: any = null;
+    try {
+      order = await this.fetchOrder(shipment.order_id);
+    } catch (error) {
+      console.error('Failed to fetch order for label:', error);
+    }
 
     const labelData = {
       senderName: shipment.sender_name,
@@ -453,15 +455,12 @@ export class LogisticsService {
     description?: string
   ) {
     try {
-      const order = await prisma.orders.findUnique({
-        where: { id: orderId },
-        include: {
-          order_items: {
-            take: 1,
-            select: { product_name: true }
-          }
-        }
-      });
+      let order: any = null;
+      try {
+        order = await this.fetchOrder(orderId);
+      } catch (error) {
+        console.error('Failed to fetch order for notification:', error);
+      }
 
       // Map shipment status to notification type
       const notificationTypeMap: Record<string, string> = {
