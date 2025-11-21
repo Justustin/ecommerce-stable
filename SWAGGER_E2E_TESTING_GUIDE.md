@@ -112,25 +112,20 @@ Delivery → Wallet Credits → Withdrawals → Settlements
 
 ```json
 {
-  "owner_id": "550e8400-e29b-41d4-a716-446655440001",
-  "name": "Test Factory Indonesia",
+  "ownerId": "550e8400-e29b-41d4-a716-446655440001",
+  "factoryCode": "FACT-BDG-TST-202411",
+  "factoryName": "Test Factory Indonesia",
   "description": "Premium textile manufacturer",
-  "phone": "+6281234567890",
+  "phoneNumber": "+6281234567890",
   "email": "factory@test.com",
-  "address": {
-    "street": "Jl. Industri No. 123",
-    "city": "Bandung",
-    "province": "Jawa Barat",
-    "postal_code": "40123",
-    "country": "Indonesia"
-  },
-  "business_license_number": "SIUP-12345678",
-  "tax_id": "NPWP-87654321",
-  "bank_account": {
-    "bank_name": "BCA",
-    "account_number": "1234567890",
-    "account_holder": "PT Test Factory"
-  }
+  "province": "Jawa Barat",
+  "city": "Bandung",
+  "district": "Cimahi",
+  "postalCode": "40123",
+  "addressLine": "Jl. Industri No. 123",
+  "businessLicenseNumber": "SIUP-12345678",
+  "taxId": "NPWP-87654321",
+  "logoUrl": "https://example.com/logo.png"
 }
 ```
 
