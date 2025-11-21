@@ -282,7 +282,7 @@ Use slug: `premium-cotton-tshirt`
   "priceTier75": 120000,
   "priceTier100": 110000,
   "endTime": "2025-11-27T23:59:59Z",
-  "estimatedCompletionDate": "2025-12-10"
+  "estimatedCompletionDate": "2025-12-10T00:00:00Z"
 }
 ```
 
