@@ -199,7 +199,7 @@ export class AdminController {
         prisma.otps.findMany({
           skip,
           take: limit,
-          orderBy: { created_at: 'desc' }
+          orderBy: { createdAt: 'desc' }
         })
       ]);
 
@@ -217,7 +217,7 @@ export class AdminController {
     try {
       const result = await prisma.otps.deleteMany({
         where: {
-          expires_at: { lt: new Date() }
+          expiresAt: { lt: new Date() }
         }
       });
 

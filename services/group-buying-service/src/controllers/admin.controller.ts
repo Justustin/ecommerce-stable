@@ -160,13 +160,14 @@ export class AdminController {
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { productId, variantId, unitsPerBundle } = req.body;
+      const { productId, variantId, unitsPerBundle, notes } = req.body;
 
       const config = await prisma.grosir_bundle_config.create({
         data: {
           product_id: productId,
           variant_id: variantId || null,
-          units_per_bundle: unitsPerBundle
+          units_per_bundle: unitsPerBundle,
+          notes: notes || null
         }
       });
 
@@ -185,12 +186,13 @@ export class AdminController {
   updateBundleConfig = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { unitsPerBundle } = req.body;
+      const { unitsPerBundle, notes } = req.body;
 
       const config = await prisma.grosir_bundle_config.update({
         where: { id },
         data: {
           units_per_bundle: unitsPerBundle,
+          notes: notes,
           updated_at: new Date()
         }
       });
@@ -227,9 +229,16 @@ export class AdminController {
   // Warehouse Tolerance (grosir_warehouse_tolerance)
   getWarehouseTolerances = async (req: Request, res: Response) => {
     try {
+      const productId = req.query.productId as string;
+
+      const where: any = {};
+      if (productId) where.product_id = productId;
+
       const tolerances = await prisma.grosir_warehouse_tolerance.findMany({
+        where,
         include: {
-          products: { select: { id: true, name: true } }
+          products: { select: { id: true, name: true } },
+          product_variants: { select: { id: true, variant_name: true, sku: true } }
         }
       });
 
@@ -246,13 +255,15 @@ export class AdminController {
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { warehouseId, productId, maxExcessUnits } = req.body;
+      const { productId, variantId, maxExcessUnits, clearanceRateEstimate, notes } = req.body;
 
       const tolerance = await prisma.grosir_warehouse_tolerance.create({
         data: {
-          warehouse_id: warehouseId,
           product_id: productId,
-          max_excess_units: maxExcessUnits
+          variant_id: variantId || null,
+          max_excess_units: maxExcessUnits,
+          clearance_rate_estimate: clearanceRateEstimate || null,
+          notes: notes || null
         }
       });
 
@@ -262,7 +273,7 @@ export class AdminController {
       });
     } catch (error: any) {
       if (error.code === 'P2002') {
-        return res.status(409).json({ error: 'Tolerance already exists for this warehouse/product' });
+        return res.status(409).json({ error: 'Tolerance already exists for this product/variant' });
       }
       res.status(500).json({ error: error.message });
     }
@@ -271,12 +282,14 @@ export class AdminController {
   updateWarehouseTolerance = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { maxExcessUnits } = req.body;
+      const { maxExcessUnits, clearanceRateEstimate, notes } = req.body;
 
       const tolerance = await prisma.grosir_warehouse_tolerance.update({
         where: { id },
         data: {
           max_excess_units: maxExcessUnits,
+          clearance_rate_estimate: clearanceRateEstimate,
+          notes: notes,
           updated_at: new Date()
         }
       });
@@ -310,18 +323,18 @@ export class AdminController {
     }
   };
 
-  // Variant Allocations
+  // Variant Allocations (grosir_variant_allocations)
   getVariantAllocations = async (req: Request, res: Response) => {
     try {
-      const sessionId = req.query.sessionId as string;
+      const productId = req.query.productId as string;
 
       const where: any = {};
-      if (sessionId) where.session_id = sessionId;
+      if (productId) where.product_id = productId;
 
       const allocations = await prisma.grosir_variant_allocations.findMany({
         where,
         include: {
-          group_buying_sessions: { select: { id: true, session_code: true } },
+          products: { select: { id: true, name: true } },
           product_variants: { select: { id: true, variant_name: true, sku: true } }
         }
       });
@@ -332,24 +345,69 @@ export class AdminController {
     }
   };
 
+  createVariantAllocation = async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { productId, variantId, allocationQuantity } = req.body;
+
+      const allocation = await prisma.grosir_variant_allocations.create({
+        data: {
+          product_id: productId,
+          variant_id: variantId || null,
+          allocation_quantity: allocationQuantity
+        }
+      });
+
+      res.status(201).json({
+        message: 'Variant allocation created successfully',
+        data: allocation
+      });
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        return res.status(409).json({ error: 'Allocation already exists for this product/variant' });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  };
+
   updateVariantAllocation = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { maxQuantity, currentQuantity } = req.body;
-
-      const updateData: any = { updated_at: new Date() };
-      if (maxQuantity !== undefined) updateData.max_quantity = maxQuantity;
-      if (currentQuantity !== undefined) updateData.current_quantity = currentQuantity;
+      const { allocationQuantity } = req.body;
 
       const allocation = await prisma.grosir_variant_allocations.update({
         where: { id },
-        data: updateData
+        data: {
+          allocation_quantity: allocationQuantity,
+          updated_at: new Date()
+        }
       });
 
       res.json({
         message: 'Variant allocation updated successfully',
         data: allocation
       });
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Allocation not found' });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  deleteVariantAllocation = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      await prisma.grosir_variant_allocations.delete({
+        where: { id }
+      });
+
+      res.json({ message: 'Variant allocation deleted successfully' });
     } catch (error: any) {
       if (error.code === 'P2025') {
         return res.status(404).json({ error: 'Allocation not found' });
@@ -384,7 +442,7 @@ export class AdminController {
           _count: true
         }),
         prisma.group_participants.aggregate({
-          where: whereClause.created_at ? { created_at: whereClause.created_at } : {},
+          where: whereClause.created_at ? { joined_at: whereClause.created_at } : {},
           _count: true,
           _sum: { quantity: true }
         })
@@ -415,14 +473,18 @@ export class AdminController {
     try {
       const { productId } = req.params;
 
-      const [bundleConfigs, tolerances, product] = await Promise.all([
+      const [bundleConfigs, tolerances, allocations, product] = await Promise.all([
         prisma.grosir_bundle_config.findMany({
           where: { product_id: productId },
           include: { product_variants: true }
         }),
         prisma.grosir_warehouse_tolerance.findMany({
           where: { product_id: productId },
-          include: { warehouses: true }
+          include: { product_variants: true }
+        }),
+        prisma.grosir_variant_allocations.findMany({
+          where: { product_id: productId },
+          include: { product_variants: true }
         }),
         prisma.products.findUnique({
           where: { id: productId },
@@ -434,7 +496,8 @@ export class AdminController {
         data: {
           product,
           bundleConfigs,
-          warehouseTolerances: tolerances
+          warehouseTolerances: tolerances,
+          variantAllocations: allocations
         }
       });
     } catch (error: any) {

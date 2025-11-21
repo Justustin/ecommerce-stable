@@ -19,8 +19,8 @@ export class AdminController {
       if (isDefault !== undefined) where.is_default = isDefault === 'true';
 
       const [total, addresses] = await Promise.all([
-        prisma.addresses.count({ where }),
-        prisma.addresses.findMany({
+        prisma.user_addresses.count({ where }),
+        prisma.user_addresses.findMany({
           where,
           skip,
           take: limit,
@@ -45,7 +45,7 @@ export class AdminController {
     try {
       const { id } = req.params;
 
-      const address = await prisma.addresses.findUnique({
+      const address = await prisma.user_addresses.findUnique({
         where: { id },
         include: {
           users: { select: { id: true, first_name: true, last_name: true, phone_number: true, email: true } }
@@ -72,7 +72,7 @@ export class AdminController {
 
       const { id } = req.params;
 
-      const updated = await prisma.addresses.update({
+      const updated = await prisma.user_addresses.update({
         where: { id },
         data: {
           ...req.body,
@@ -91,7 +91,7 @@ export class AdminController {
     try {
       const { id } = req.params;
 
-      await prisma.addresses.delete({ where: { id } });
+      await prisma.user_addresses.delete({ where: { id } });
 
       res.json({ message: 'Address deleted successfully' });
     } catch (error: any) {
@@ -104,7 +104,7 @@ export class AdminController {
     try {
       const { ids } = req.body;
 
-      const result = await prisma.addresses.deleteMany({
+      const result = await prisma.user_addresses.deleteMany({
         where: { id: { in: ids } }
       });
 
@@ -122,14 +122,14 @@ export class AdminController {
         addressesByDistrict,
         usersWithMultipleAddresses
       ] = await Promise.all([
-        prisma.addresses.count(),
-        prisma.addresses.groupBy({
+        prisma.user_addresses.count(),
+        prisma.user_addresses.groupBy({
           by: ['district'],
           _count: true,
           orderBy: { _count: { district: 'desc' } },
           take: 20
         }),
-        prisma.addresses.groupBy({
+        prisma.user_addresses.groupBy({
           by: ['user_id'],
           _count: true,
           having: { user_id: { _count: { gt: 1 } } }
