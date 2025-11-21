@@ -5,6 +5,10 @@ import { CreatePaymentDTO, CreateEscrowPaymentDTO } from '../types';
 import { xenditInvoiceClient } from '../config/xendit';
 import { CreateInvoiceRequest } from 'xendit-node/invoice/models';
 import { notificationClient } from '../clients/notification.client';
+import axios from 'axios';
+
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
 
 export class PaymentService {
   private repository: PaymentRepository;
@@ -15,18 +19,55 @@ export class PaymentService {
     this.transactionLedgerService = new TransactionLedgerService();
   }
 
-  async createPayment(data: CreatePaymentDTO) {
-    const user = await prisma.users.findUnique({
-      where: { id: data.userId },
-      select: { email: true, phone_number: true, first_name: true, last_name: true }
-    });
-
-    if (!user) {
-      throw new Error('User not found');
+  // Helper method to fetch user from auth-service
+  private async fetchUser(userId: string): Promise<any> {
+    try {
+      const response = await axios.get(`${AUTH_SERVICE_URL}/api/auth/users/${userId}`);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to fetch user');
+      }
+      return response.data.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        throw new Error('User not found');
+      }
+      throw new Error(`Failed to fetch user: ${error.message}`);
     }
+  }
+
+  // Helper method to fetch order from order-service
+  private async fetchOrder(orderId: string): Promise<any> {
+    try {
+      const response = await axios.get(`${ORDER_SERVICE_URL}/api/orders/${orderId}`);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to fetch order');
+      }
+      return response.data.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        throw new Error('Order not found');
+      }
+      throw new Error(`Failed to fetch order: ${error.message}`);
+    }
+  }
+
+  // Helper method to update order status via order-service
+  private async updateOrderStatus(orderId: string, newStatus: string): Promise<void> {
+    try {
+      await axios.put(`${ORDER_SERVICE_URL}/api/orders/${orderId}/status`, {
+        newStatus
+      });
+    } catch (error: any) {
+      console.error(`Failed to update order ${orderId} status:`, error.message);
+      throw error;
+    }
+  }
+
+  async createPayment(data: CreatePaymentDTO) {
+    const userData = await this.fetchUser(data.userId);
 
     const expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
-    const userEmail = user.email || this.generatePlaceholderEmail(user.phone_number);
+    const userEmail = userData.email || this.generatePlaceholderEmail(userData.phoneNumber);
 
     // Xendit v7.x API structure
     const invoiceData: CreateInvoiceRequest = {
@@ -34,16 +75,16 @@ export class PaymentService {
       amount: data.amount,
       payerEmail: userEmail,
       description: `Payment for order ${data.orderId}`,
-      invoiceDuration: expiresAt 
+      invoiceDuration: expiresAt
         ? Math.floor((expiresAt.getTime() - Date.now()) / 1000).toString()
         : '86400',
       currency: 'IDR',
-      shouldSendEmail: Boolean(user.email),
+      shouldSendEmail: Boolean(userData.email),
       customer: {
-        givenNames: user.first_name,
-        surname: user.last_name || '',
+        givenNames: userData.firstName,
+        surname: userData.lastName || '',
         email: userEmail,
-        mobileNumber: user.phone_number
+        mobileNumber: userData.phoneNumber
       },
       successRedirectUrl: process.env.PAYMENT_SUCCESS_URL,
       failureRedirectUrl: process.env.PAYMENT_FAILURE_URL
@@ -81,10 +122,11 @@ async handlePaidCallback(callbackData: any) {
   }
 
   const gatewayFee = callbackData.fees_paid_amount || 0;
-  
+
   // Check if this is an escrow payment (no order yet)
   const isEscrowPayment = !payment.order_id && payment.is_in_escrow;
-  const isGroupBuying = payment.orders?.group_session_id !== null || isEscrowPayment;
+  // Check if group buying via payment's group_session_id or order's group_session_id
+  const isGroupBuying = payment.group_session_id !== null || payment.orders?.group_session_id !== null || isEscrowPayment;
 
   await this.repository.markPaid(
     payment.id,
@@ -95,28 +137,26 @@ async handlePaidCallback(callbackData: any) {
 
   // Only update order status if order exists
   if (payment.order_id) {
-    await prisma.orders.update({
-      where: { id: payment.order_id },
-      data: {
-        status: 'paid',
-        paid_at: new Date(),
-        updated_at: new Date()
-      }
-    });
+    // Update order status via API
+    await this.updateOrderStatus(payment.order_id, 'paid');
+
+    // Fetch order to get order_items and factory_id
+    let order: any = null;
+    try {
+      order = await this.fetchOrder(payment.order_id);
+    } catch (error) {
+      console.error('Failed to fetch order for ledger:', error);
+    }
 
     // Record transaction in ledger
-    const orderItems = await prisma.order_items.findFirst({
-      where: { order_id: payment.order_id },
-      select: { factory_id: true }
-    });
-
-    if (orderItems && payment.orders) {
+    if (order && order.order_items && order.order_items.length > 0) {
+      const factoryId = order.order_items[0].factory_id;
       await this.transactionLedgerService.recordPaymentReceived(
         payment.id,
         payment.order_id,
-        orderItems.factory_id,
+        factoryId,
         Number(payment.order_amount),
-        payment.orders.order_number,
+        order.order_number,
         {
           gatewayFee,
           isEscrow: !!isGroupBuying
@@ -130,27 +170,20 @@ async handlePaidCallback(callbackData: any) {
     console.log(`Escrow payment ${payment.id} marked as paid for group session ${payment.group_session_id}`);
   }
 
-  return { 
+  return {
     message: 'Payment processed successfully',
     payment
   };
 }
 
-    async createEscrowPayment(data: CreatePaymentDTO & { groupSessionId: string; participantId: string }) {
-    const user = await prisma.users.findUnique({
-      where: { id: data.userId },
-      select: { email: true, phone_number: true, first_name: true, last_name: true }
-    });
-
-    if (!user) {
-      throw new Error('User not found');
-    }
+  async createEscrowPayment(data: CreatePaymentDTO & { groupSessionId: string; participantId: string }) {
+    const userData = await this.fetchUser(data.userId);
 
     const expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
-    const userEmail = user.email || this.generatePlaceholderEmail(user.phone_number);
+    const userEmail = userData.email || this.generatePlaceholderEmail(userData.phoneNumber);
 
     // Format phone number for Xendit (must start with +62)
-    let formattedPhone = user.phone_number || '';
+    let formattedPhone = userData.phoneNumber || '';
     if (formattedPhone && !formattedPhone.startsWith('+')) {
       if (formattedPhone.startsWith('0')) {
         formattedPhone = '+62' + formattedPhone.substring(1);
@@ -170,10 +203,10 @@ async handlePaidCallback(callbackData: any) {
         ? Math.floor((expiresAt.getTime() - Date.now()) / 1000).toString()
         : '86400',
       currency: 'IDR',
-      shouldSendEmail: Boolean(user.email),
+      shouldSendEmail: Boolean(userData.email),
       customer: {
-        givenNames: user.first_name || 'Customer',
-        surname: user.last_name || '-',
+        givenNames: userData.firstName || 'Customer',
+        surname: userData.lastName || '-',
         email: userEmail,
         mobileNumber: formattedPhone || undefined  // Optional if not available
       }
@@ -259,18 +292,21 @@ async handlePaidCallback(callbackData: any) {
 
   private async sendPaymentNotification(userId: string, orderId: string, status: 'success' | 'failed') {
     try {
-      const order = await prisma.orders.findUnique({
-        where: { id: orderId },
-        select: { order_number: true }
-      });
+      let orderNumber = '';
+      try {
+        const order = await this.fetchOrder(orderId);
+        orderNumber = order.order_number;
+      } catch (error) {
+        console.error('Failed to fetch order for notification:', error);
+      }
 
       await notificationClient.sendNotification({
         userId: userId,
         type: status === 'success' ? 'payment_success' : 'order_created',
         title: status === 'success' ? 'Payment Successful' : 'Payment Failed',
         message: status === 'success'
-          ? `Your payment for order ${order?.order_number} has been confirmed!`
-          : `Payment failed for order ${order?.order_number}. Please try again.`,
+          ? `Your payment for order ${orderNumber} has been confirmed!`
+          : `Payment failed for order ${orderNumber}. Please try again.`,
         actionUrl: `/orders/${orderId}`,
         relatedId: orderId
       });

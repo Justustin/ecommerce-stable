@@ -37,6 +37,27 @@ export default class AuthService {
         }
     }
 
+    async findUserById(id: string) {
+        try {
+            const user = await this.user_repository.findById(id);
+
+            if(!user) {
+                return null;
+            }
+
+            return {
+                userId: user.id,
+                phoneNumber: user.phone_number,
+                email: user.email,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                role: user.role
+            };
+        } catch {
+            return null;
+        }
+    }
+
     async verifyUser(phoneNumber: string, password: string) {
             
         try {

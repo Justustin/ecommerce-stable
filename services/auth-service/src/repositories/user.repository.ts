@@ -4,6 +4,25 @@ import { error } from 'console';
 
 
 export default class UserRepository {
+    // Get user by ID
+    async findById(id: string) {
+        try {
+            return prisma.users.findUnique({
+                where: { id },
+                select: {
+                    id: true,
+                    phone_number: true,
+                    email: true,
+                    first_name: true,
+                    last_name: true,
+                    role: true
+                }
+            });
+        } catch(error) {
+            throw error;
+        }
+    }
+
     //for login
     async findByPhoneNumber(phoneNumber: string) {
         try {

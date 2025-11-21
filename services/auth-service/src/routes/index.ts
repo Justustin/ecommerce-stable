@@ -12,6 +12,9 @@ router.post("/signup", controller.signup)
 router.post("/refresh", controller.refresh);
 router.post("/sendOTP", controller.sendOTP);
 
+// Internal API for service-to-service communication
+router.get("/users/:id", controller.getUserById);
+
 
 
 export {router};

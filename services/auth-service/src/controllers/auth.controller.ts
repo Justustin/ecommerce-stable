@@ -100,6 +100,38 @@ export class AuthController {
         }
     }
 
+    getUserById = async (req: Request, res: Response) => {
+        try {
+            const { id } = req.params;
+
+            if (!id) {
+                return res.status(400).json({
+                    success: false,
+                    error: "User ID is required"
+                });
+            }
+
+            const user = await this.service.findUserById(id);
+
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found"
+                });
+            }
+
+            return res.json({
+                success: true,
+                data: user
+            });
+        } catch (error: any) {
+            return res.status(500).json({
+                success: false,
+                error: error.message || "Internal server error"
+            });
+        }
+    }
+
     refresh = async (req: Request, res: Response) => {
         try {
             const refreshToken = req.cookies.refreshToken;
