@@ -16,6 +16,7 @@ const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://localhost:300
 const WALLET_SERVICE_URL = process.env.WALLET_SERVICE_URL || 'http://localhost:3010';
 const WAREHOUSE_SERVICE_URL = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3011';
 const PRODUCT_SERVICE_URL = process.env.PRODUCT_SERVICE_URL || 'http://localhost:3003';
+const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3007';
 
 export class GroupBuyingService {
     private repository: GroupBuyingRepository;
@@ -174,6 +175,53 @@ export class GroupBuyingService {
                 throw new Error('Product not found');
             }
             throw new Error(`Failed to fetch product: ${error.message}`);
+        }
+    }
+
+    // Notification Service helpers
+    private async sendNotification(data: {
+        userId: string;
+        type: string;
+        title: string;
+        message: string;
+        actionUrl?: string;
+        relatedId?: string;
+    }): Promise<void> {
+        try {
+            await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, data, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 5000
+            });
+        } catch (error: any) {
+            logger.error('Failed to send notification', {
+                userId: data.userId,
+                type: data.type,
+                error: error.message
+            });
+            // Don't throw - notifications are non-critical
+        }
+    }
+
+    private async sendBulkNotification(data: {
+        userIds: string[];
+        type: string;
+        title: string;
+        message: string;
+        actionUrl?: string;
+        relatedId?: string;
+    }): Promise<void> {
+        try {
+            await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`, data, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000
+            });
+        } catch (error: any) {
+            logger.error('Failed to send bulk notification', {
+                userCount: data.userIds.length,
+                type: data.type,
+                error: error.message
+            });
+            // Don't throw - notifications are non-critical
         }
     }
 
