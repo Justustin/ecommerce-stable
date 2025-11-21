@@ -11,6 +11,24 @@ import {
   CreatePaymentDTO
 } from '../types';
 
+const GROUP_BUYING_SERVICE_URL = process.env.GROUP_BUYING_SERVICE_URL || 'http://localhost:3004';
+
+// ============= API Helper Methods =============
+
+// Group Buying Service helper - link participant to order
+async function linkParticipantToOrder(participantId: string, orderId: string): Promise<void> {
+  try {
+    await axios.post(`${GROUP_BUYING_SERVICE_URL}/api/group-buying/participants/link-order`, {
+      participantId,
+      orderId
+    });
+  } catch (error: any) {
+    console.error(`Failed to link participant ${participantId} to order:`, error.message);
+  }
+}
+
+// ============= End API Helper Methods =============
+
 export class OrderService {
   private repository: OrderRepository;
   private utils: OrderUtils;
@@ -161,6 +179,15 @@ export class OrderService {
     }
 
     const orders = await this.repository.createBulkOrders(data);
+
+    // Link orders to participants via group-buying-service API
+    for (let i = 0; i < orders.length; i++) {
+      const order = orders[i];
+      const participant = data.participants[i];
+      if (participant && order) {
+        await linkParticipantToOrder(participant.participantId, order.id);
+      }
+    }
 
     return {
       success: true,
