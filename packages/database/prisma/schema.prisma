@@ -175,53 +175,20 @@ model factory_settlements {
   @@index([settlement_status], map: "idx_factory_settlements_status")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model grosir_bundle_config {
-  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id       String            @db.Uuid
-  variant_id       String?           @db.Uuid
-  units_per_bundle Int
-  notes            String?
-  created_at       DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
-  products         products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bundle_config_product")
-  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bundle_config_variant")
+/// Bundle composition - defines how many units of each variant are in a wholesale bundle
+/// Example: A bundle of 12 units = 4S + 4M + 4L
+model grosir_bundle_composition {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id      String            @db.Uuid
+  variant_id      String?           @db.Uuid
+  units_in_bundle Int
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  products        products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bundle_composition_product")
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bundle_composition_variant")
 
-  @@unique([product_id, variant_id], map: "unique_bundle_config_product_variant")
-  @@index([product_id], map: "idx_bundle_config_product")
-}
-
-model grosir_variant_allocations {
-  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String            @db.Uuid
-  variant_id          String?           @db.Uuid
-  allocation_quantity Int
-  created_at          DateTime?         @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime?         @default(now()) @db.Timestamptz(6)
-  products            products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  product_variants    product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([product_id, variant_id])
-  @@index([product_id], map: "idx_grosir_allocations_product")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model grosir_warehouse_tolerance {
-  id                      String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id              String            @db.Uuid
-  variant_id              String?           @db.Uuid
-  max_excess_units        Int
-  clearance_rate_estimate Int?
-  notes                   String?
-  created_at              DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime          @default(now()) @db.Timestamptz(6)
-  products                products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tolerance_product")
-  product_variants        product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tolerance_variant")
-
-  @@unique([product_id, variant_id], map: "unique_tolerance_product_variant")
-  @@index([product_id], map: "idx_tolerance_product")
+  @@unique([product_id, variant_id], map: "unique_bundle_composition")
+  @@index([product_id], map: "idx_bundle_composition_product")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -516,9 +483,7 @@ model product_variants {
   is_active                  Boolean?                     @default(true)
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
-  grosir_bundle_config       grosir_bundle_config[]
-  grosir_variant_allocations grosir_variant_allocations[]
-  grosir_warehouse_tolerance grosir_warehouse_tolerance[]
+  grosir_bundle_composition  grosir_bundle_composition[]
   group_participants         group_participants[]
   order_items                order_items[]
   products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -559,9 +524,7 @@ model products {
   grosir_unit_size           Int?
   product_source             product_source?              @default(factory_group_buying)
   seller_id                  String?                      @db.Uuid
-  grosir_bundle_config       grosir_bundle_config[]
-  grosir_variant_allocations grosir_variant_allocations[]
-  grosir_warehouse_tolerance grosir_warehouse_tolerance[]
+  grosir_bundle_composition  grosir_bundle_composition[]
   group_buying_sessions      group_buying_sessions[]
   order_items                order_items[]
   product_images             product_images[]
@@ -1005,6 +968,7 @@ model wallet_withdrawals {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// Tracks actual warehouse stock per product/variant with reorder management
 model warehouse_inventory {
   id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id         String            @db.Uuid
@@ -1012,8 +976,9 @@ model warehouse_inventory {
   quantity           Int               @default(0)
   reserved_quantity  Int               @default(0)
   available_quantity Int?              @default(dbgenerated("(quantity - reserved_quantity)"))
+  max_stock_level    Int               @default(0)    // Max units warehouse holds for this variant
+  reorder_threshold  Int               @default(0)    // Order new bundle when stock falls to this
   location           String?           @db.VarChar(100)
-  min_stock_level    Int?              @default(0)
   last_restocked_at  DateTime?         @db.Timestamptz(6)
   last_sold_at       DateTime?         @db.Timestamptz(6)
   created_at         DateTime          @default(now()) @db.Timestamptz(6)
