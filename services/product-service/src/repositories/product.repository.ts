@@ -212,4 +212,82 @@ export class ProductRepository {
     }
   });
 }
+
+  // ============= Grosir Config Management =============
+
+  async setGrosirAllocations(productId: string, allocations: { variantId: string | null; allocationQuantity: number }[]) {
+    // Delete existing allocations for this product
+    await prisma.grosir_variant_allocations.deleteMany({
+      where: { product_id: productId }
+    });
+
+    // Insert new allocations
+    return prisma.grosir_variant_allocations.createMany({
+      data: allocations.map(a => ({
+        product_id: productId,
+        variant_id: a.variantId,
+        allocation_quantity: a.allocationQuantity
+      }))
+    });
+  }
+
+  async setWarehouseTolerance(productId: string, tolerances: { variantId: string | null; maxExcessUnits: number; clearanceRateEstimate?: number }[]) {
+    // Upsert each tolerance
+    const results = [];
+    for (const t of tolerances) {
+      const result = await prisma.grosir_warehouse_tolerance.upsert({
+        where: {
+          product_id_variant_id: {
+            product_id: productId,
+            variant_id: t.variantId || 'null'
+          }
+        },
+        create: {
+          product_id: productId,
+          variant_id: t.variantId || 'null',
+          max_excess_units: t.maxExcessUnits,
+          clearance_rate_estimate: t.clearanceRateEstimate || 0.8
+        },
+        update: {
+          max_excess_units: t.maxExcessUnits,
+          clearance_rate_estimate: t.clearanceRateEstimate || 0.8
+        }
+      });
+      results.push(result);
+    }
+    return results;
+  }
+
+  async getGrosirConfig(productId: string) {
+    const [allocations, tolerances, product] = await Promise.all([
+      prisma.grosir_variant_allocations.findMany({
+        where: { product_id: productId },
+        include: {
+          product_variants: {
+            select: {
+              id: true,
+              variant_name: true
+            }
+          }
+        }
+      }),
+      prisma.grosir_warehouse_tolerance.findMany({
+        where: { product_id: productId }
+      }),
+      prisma.products.findUnique({
+        where: { id: productId },
+        select: {
+          id: true,
+          name: true,
+          grosir_unit_size: true
+        }
+      })
+    ]);
+
+    return {
+      product,
+      allocations,
+      tolerances
+    };
+  }
 }

@@ -300,4 +300,154 @@ router.post('/:id/images', controller.addImages);
  */
 router.post('/:id/variants', controller.createVariant);
 router.get('/variants/:variantId', controller.getVariantById);
+
+// ============= Grosir Config Management =============
+
+/**
+ * @swagger
+ * /api/products/{id}/grosir-config:
+ *   get:
+ *     summary: Get grosir configuration for a product
+ *     tags: [Grosir Config]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Product ID
+ *     responses:
+ *       200:
+ *         description: Grosir configuration
+ *       404:
+ *         description: Product not found
+ */
+router.get('/:id/grosir-config', controller.getGrosirConfig);
+
+/**
+ * @swagger
+ * /api/products/{id}/grosir-allocations:
+ *   post:
+ *     summary: Set grosir variant allocations
+ *     description: Define how many of each variant can be ordered (allocation_quantity per variant)
+ *     tags: [Grosir Config]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Product ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - allocations
+ *             properties:
+ *               allocations:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - allocationQuantity
+ *                   properties:
+ *                     variantId:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                       description: Variant ID (null for base product)
+ *                     allocationQuantity:
+ *                       type: integer
+ *                       minimum: 1
+ *                       description: Base allocation quantity for this variant
+ *           example:
+ *             allocations:
+ *               - variantId: "s-variant-uuid"
+ *                 allocationQuantity: 20
+ *               - variantId: "m-variant-uuid"
+ *                 allocationQuantity: 50
+ *               - variantId: "l-variant-uuid"
+ *                 allocationQuantity: 40
+ *     responses:
+ *       200:
+ *         description: Allocations set successfully
+ *       400:
+ *         description: Invalid data
+ *       404:
+ *         description: Product not found
+ */
+router.post('/:id/grosir-allocations', controller.setGrosirAllocations);
+
+/**
+ * @swagger
+ * /api/products/{id}/warehouse-tolerance:
+ *   post:
+ *     summary: Set warehouse tolerance configuration
+ *     description: Define max excess units warehouse will absorb per variant
+ *     tags: [Grosir Config]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Product ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - tolerances
+ *             properties:
+ *               tolerances:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - maxExcessUnits
+ *                   properties:
+ *                     variantId:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                       description: Variant ID (null for base product)
+ *                     maxExcessUnits:
+ *                       type: integer
+ *                       minimum: 0
+ *                       description: Maximum excess units warehouse will hold
+ *                     clearanceRateEstimate:
+ *                       type: number
+ *                       minimum: 0
+ *                       maximum: 1
+ *                       default: 0.8
+ *                       description: Estimated clearance rate (0-1)
+ *           example:
+ *             tolerances:
+ *               - variantId: "s-variant-uuid"
+ *                 maxExcessUnits: 20
+ *                 clearanceRateEstimate: 0.8
+ *               - variantId: "m-variant-uuid"
+ *                 maxExcessUnits: 50
+ *                 clearanceRateEstimate: 0.9
+ *               - variantId: "l-variant-uuid"
+ *                 maxExcessUnits: 40
+ *                 clearanceRateEstimate: 0.85
+ *     responses:
+ *       200:
+ *         description: Tolerance set successfully
+ *       400:
+ *         description: Invalid data
+ *       404:
+ *         description: Product not found
+ */
+router.post('/:id/warehouse-tolerance', controller.setWarehouseTolerance);
+
 export default router;

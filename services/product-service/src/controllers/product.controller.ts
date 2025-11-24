@@ -104,4 +104,56 @@ export class ProductController {
       res.status(400).json({ error: error.message });
     }
   };
+
+  // ============= Grosir Config Management =============
+
+  setGrosirAllocations = async (req: Request, res: Response) => {
+    try {
+      const { allocations } = req.body;
+
+      if (!allocations || !Array.isArray(allocations) || allocations.length === 0) {
+        return res.status(400).json({ error: 'Allocations array is required' });
+      }
+
+      const result = await this.service.setGrosirAllocations(req.params.id, allocations);
+      res.json({
+        success: true,
+        message: 'Grosir allocations set successfully',
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  };
+
+  setWarehouseTolerance = async (req: Request, res: Response) => {
+    try {
+      const { tolerances } = req.body;
+
+      if (!tolerances || !Array.isArray(tolerances) || tolerances.length === 0) {
+        return res.status(400).json({ error: 'Tolerances array is required' });
+      }
+
+      const result = await this.service.setWarehouseTolerance(req.params.id, tolerances);
+      res.json({
+        success: true,
+        message: 'Warehouse tolerance set successfully',
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  };
+
+  getGrosirConfig = async (req: Request, res: Response) => {
+    try {
+      const config = await this.service.getGrosirConfig(req.params.id);
+      res.json({
+        success: true,
+        data: config
+      });
+    } catch (error: any) {
+      res.status(404).json({ success: false, error: error.message });
+    }
+  };
 }

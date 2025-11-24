@@ -67,4 +67,50 @@ export class ProductService {
         }
         return this.repository.publish(id);
     }
+
+    // ============= Grosir Config Management =============
+
+    async setGrosirAllocations(productId: string, allocations: { variantId: string | null; allocationQuantity: number }[]) {
+        const product = await this.repository.findById(productId);
+        if (!product) {
+            throw new Error('Product not found');
+        }
+
+        // Validate allocation quantities
+        for (const a of allocations) {
+            if (a.allocationQuantity < 1) {
+                throw new Error('Allocation quantity must be at least 1');
+            }
+        }
+
+        return this.repository.setGrosirAllocations(productId, allocations);
+    }
+
+    async setWarehouseTolerance(productId: string, tolerances: { variantId: string | null; maxExcessUnits: number; clearanceRateEstimate?: number }[]) {
+        const product = await this.repository.findById(productId);
+        if (!product) {
+            throw new Error('Product not found');
+        }
+
+        // Validate tolerance values
+        for (const t of tolerances) {
+            if (t.maxExcessUnits < 0) {
+                throw new Error('Max excess units cannot be negative');
+            }
+            if (t.clearanceRateEstimate && (t.clearanceRateEstimate < 0 || t.clearanceRateEstimate > 1)) {
+                throw new Error('Clearance rate estimate must be between 0 and 1');
+            }
+        }
+
+        return this.repository.setWarehouseTolerance(productId, tolerances);
+    }
+
+    async getGrosirConfig(productId: string) {
+        const product = await this.repository.findById(productId);
+        if (!product) {
+            throw new Error('Product not found');
+        }
+
+        return this.repository.getGrosirConfig(productId);
+    }
 }
