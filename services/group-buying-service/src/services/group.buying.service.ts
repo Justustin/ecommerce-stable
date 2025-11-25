@@ -146,7 +146,7 @@ export class GroupBuyingService {
             throw new Error('Quantity must be at least 1')
         }
 
-        // GROSIR VARIANT ALLOCATION CHECK: Enforce 2x allocation limit
+        // WAREHOUSE INVENTORY CHECK: Check variant availability
         if (data.variantId) {
             try {
                 const variantAvail = await this.getVariantAvailability(
@@ -156,17 +156,17 @@ export class GroupBuyingService {
 
                 if (variantAvail.isLocked) {
                     throw new Error(
-                        `Variant is currently locked. ` +
-                        `Max ${variantAvail.maxAllowed} allowed, ` +
-                        `${variantAvail.totalOrdered} already ordered. ` +
-                        `Other variants need to catch up before you can order more of this variant.`
+                        `Variant is currently out of stock. ` +
+                        `Warehouse stock: ${variantAvail.quantity}, ` +
+                        `Reserved: ${variantAvail.reservedQuantity}. ` +
+                        `Please try a different variant or wait for restock.`
                     );
                 }
 
                 if (data.quantity > variantAvail.available) {
                     throw new Error(
                         `Only ${variantAvail.available} units available for this variant. ` +
-                        `Already ordered: ${variantAvail.totalOrdered}/${variantAvail.maxAllowed}`
+                        `Warehouse has ${variantAvail.quantity} total, ${variantAvail.reservedQuantity} already reserved.`
                     );
                 }
 
@@ -175,17 +175,18 @@ export class GroupBuyingService {
                     variantId: data.variantId,
                     requested: data.quantity,
                     available: variantAvail.available,
-                    totalOrdered: variantAvail.totalOrdered
+                    warehouseStock: variantAvail.quantity
                 });
             } catch (error: any) {
-                // If allocation doesn't exist, that's okay - product might not use grosir system
-                if (!error.message.includes('not configured')) {
+                // If warehouse service is unavailable, log but allow the join
+                if (error.message.includes('service_unavailable')) {
+                    logger.warn('Warehouse service unavailable, skipping stock check', {
+                        sessionId: data.groupSessionId,
+                        productId: session.product_id
+                    });
+                } else {
                     throw error;
                 }
-                logger.info('Product does not use grosir allocation system', {
-                    sessionId: data.groupSessionId,
-                    productId: session.product_id
-                });
             }
         }
 

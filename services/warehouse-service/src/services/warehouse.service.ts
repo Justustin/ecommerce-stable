@@ -114,7 +114,7 @@ export class WarehouseService {
         // 1. Get bundle composition for this variant
         const bundleComposition = await prisma.grosir_bundle_composition.findUnique({
             where: {
-                unique_bundle_composition: {
+                product_id_variant_id: {
                     product_id: productId,
                     variant_id: variantId || null
                 }
@@ -241,7 +241,7 @@ export class WarehouseService {
 
         if (available <= 0) {
             status = 'out_of_stock';
-        } else if (inventory.quantity <= inventory.reorder_threshold) {
+        } else if (inventory.reorder_threshold !== null && inventory.quantity <= inventory.reorder_threshold) {
             status = 'low_stock';
         }
 
@@ -251,8 +251,8 @@ export class WarehouseService {
             quantity: inventory.quantity,
             reservedQuantity: inventory.reserved_quantity,
             availableQuantity: available,
-            maxStockLevel: inventory.max_stock_level,
-            reorderThreshold: inventory.reorder_threshold,
+            maxStockLevel: inventory.max_stock_level || 0,
+            reorderThreshold: inventory.reorder_threshold || 0,
             status
         };
     }
