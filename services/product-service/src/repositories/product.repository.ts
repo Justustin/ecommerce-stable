@@ -226,7 +226,7 @@ export class ProductRepository {
         where: {
           product_id_variant_id: {
             product_id: productId,
-            variant_id: comp.variantId || null
+            variant_id: comp.variantId || "null"
           }
         },
         create: {
@@ -245,7 +245,7 @@ export class ProductRepository {
         where: {
           product_id_variant_id: {
             product_id: productId,
-            variant_id: comp.variantId || null
+            variant_id: comp.variantId || "null"
           }
         },
         create: {
@@ -272,7 +272,7 @@ export class ProductRepository {
         where: {
           product_id_variant_id: {
             product_id: productId,
-            variant_id: config.variantId || null
+            variant_id: config.variantId || "null"
           }
         },
         create: {
