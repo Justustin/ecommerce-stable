@@ -68,43 +68,55 @@ export class ProductService {
         return this.repository.publish(id);
     }
 
-    // ============= Grosir Config Management =============
+    // ============= Grosir Config Management (Simplified) =============
 
-    async setGrosirAllocations(productId: string, allocations: { variantId: string | null; allocationQuantity: number }[]) {
+    /**
+     * Set bundle composition for grosir - defines units per bundle for each variant
+     */
+    async setBundleComposition(productId: string, compositions: { variantId: string | null; unitsInBundle: number }[]) {
         const product = await this.repository.findById(productId);
         if (!product) {
             throw new Error('Product not found');
         }
 
-        // Validate allocation quantities
-        for (const a of allocations) {
-            if (a.allocationQuantity < 1) {
-                throw new Error('Allocation quantity must be at least 1');
+        // Validate units in bundle
+        for (const comp of compositions) {
+            if (comp.unitsInBundle < 1) {
+                throw new Error('Units in bundle must be at least 1');
             }
         }
 
-        return this.repository.setGrosirAllocations(productId, allocations);
+        return this.repository.setBundleComposition(productId, compositions);
     }
 
-    async setWarehouseTolerance(productId: string, tolerances: { variantId: string | null; maxExcessUnits: number; clearanceRateEstimate?: number }[]) {
+    /**
+     * Set warehouse inventory configuration - max stock and reorder thresholds
+     */
+    async setWarehouseInventoryConfig(productId: string, configs: { variantId: string | null; maxStockLevel: number; reorderThreshold: number }[]) {
         const product = await this.repository.findById(productId);
         if (!product) {
             throw new Error('Product not found');
         }
 
-        // Validate tolerance values
-        for (const t of tolerances) {
-            if (t.maxExcessUnits < 0) {
-                throw new Error('Max excess units cannot be negative');
+        // Validate config values
+        for (const config of configs) {
+            if (config.maxStockLevel < 0) {
+                throw new Error('Max stock level cannot be negative');
             }
-            if (t.clearanceRateEstimate && (t.clearanceRateEstimate < 0 || t.clearanceRateEstimate > 1)) {
-                throw new Error('Clearance rate estimate must be between 0 and 1');
+            if (config.reorderThreshold < 0) {
+                throw new Error('Reorder threshold cannot be negative');
+            }
+            if (config.reorderThreshold > config.maxStockLevel) {
+                throw new Error('Reorder threshold cannot exceed max stock level');
             }
         }
 
-        return this.repository.setWarehouseTolerance(productId, tolerances);
+        return this.repository.setWarehouseInventoryConfig(productId, configs);
     }
 
+    /**
+     * Get grosir configuration - bundle composition and warehouse inventory settings
+     */
     async getGrosirConfig(productId: string) {
         const product = await this.repository.findById(productId);
         if (!product) {

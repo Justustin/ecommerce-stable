@@ -327,10 +327,10 @@ router.get('/:id/grosir-config', controller.getGrosirConfig);
 
 /**
  * @swagger
- * /api/products/{id}/grosir-allocations:
+ * /api/products/{id}/bundle-composition:
  *   post:
- *     summary: Set grosir variant allocations
- *     description: Define how many of each variant can be ordered (allocation_quantity per variant)
+ *     summary: Set grosir bundle composition
+ *     description: Define how many units of each variant go into a wholesale bundle
  *     tags: [Grosir Config]
  *     parameters:
  *       - in: path
@@ -347,48 +347,48 @@ router.get('/:id/grosir-config', controller.getGrosirConfig);
  *           schema:
  *             type: object
  *             required:
- *               - allocations
+ *               - compositions
  *             properties:
- *               allocations:
+ *               compositions:
  *                 type: array
  *                 items:
  *                   type: object
  *                   required:
- *                     - allocationQuantity
+ *                     - unitsInBundle
  *                   properties:
  *                     variantId:
  *                       type: string
  *                       format: uuid
  *                       nullable: true
  *                       description: Variant ID (null for base product)
- *                     allocationQuantity:
+ *                     unitsInBundle:
  *                       type: integer
  *                       minimum: 1
- *                       description: Base allocation quantity for this variant
+ *                       description: How many units of this variant in one wholesale bundle
  *           example:
- *             allocations:
+ *             compositions:
  *               - variantId: "s-variant-uuid"
- *                 allocationQuantity: 20
+ *                 unitsInBundle: 4
  *               - variantId: "m-variant-uuid"
- *                 allocationQuantity: 50
+ *                 unitsInBundle: 4
  *               - variantId: "l-variant-uuid"
- *                 allocationQuantity: 40
+ *                 unitsInBundle: 4
  *     responses:
  *       200:
- *         description: Allocations set successfully
+ *         description: Bundle composition set successfully
  *       400:
  *         description: Invalid data
  *       404:
  *         description: Product not found
  */
-router.post('/:id/grosir-allocations', controller.setGrosirAllocations);
+router.post('/:id/bundle-composition', controller.setBundleComposition);
 
 /**
  * @swagger
- * /api/products/{id}/warehouse-tolerance:
+ * /api/products/{id}/warehouse-inventory-config:
  *   post:
- *     summary: Set warehouse tolerance configuration
- *     description: Define max excess units warehouse will absorb per variant
+ *     summary: Set warehouse inventory configuration
+ *     description: Define max stock level and reorder threshold for warehouse inventory
  *     tags: [Grosir Config]
  *     parameters:
  *       - in: path
@@ -405,49 +405,48 @@ router.post('/:id/grosir-allocations', controller.setGrosirAllocations);
  *           schema:
  *             type: object
  *             required:
- *               - tolerances
+ *               - configs
  *             properties:
- *               tolerances:
+ *               configs:
  *                 type: array
  *                 items:
  *                   type: object
  *                   required:
- *                     - maxExcessUnits
+ *                     - maxStockLevel
+ *                     - reorderThreshold
  *                   properties:
  *                     variantId:
  *                       type: string
  *                       format: uuid
  *                       nullable: true
  *                       description: Variant ID (null for base product)
- *                     maxExcessUnits:
+ *                     maxStockLevel:
  *                       type: integer
  *                       minimum: 0
- *                       description: Maximum excess units warehouse will hold
- *                     clearanceRateEstimate:
- *                       type: number
+ *                       description: Maximum units warehouse will hold for this variant
+ *                     reorderThreshold:
+ *                       type: integer
  *                       minimum: 0
- *                       maximum: 1
- *                       default: 0.8
- *                       description: Estimated clearance rate (0-1)
+ *                       description: Order new bundle when stock falls to this level
  *           example:
- *             tolerances:
+ *             configs:
  *               - variantId: "s-variant-uuid"
- *                 maxExcessUnits: 20
- *                 clearanceRateEstimate: 0.8
+ *                 maxStockLevel: 100
+ *                 reorderThreshold: 20
  *               - variantId: "m-variant-uuid"
- *                 maxExcessUnits: 50
- *                 clearanceRateEstimate: 0.9
+ *                 maxStockLevel: 120
+ *                 reorderThreshold: 30
  *               - variantId: "l-variant-uuid"
- *                 maxExcessUnits: 40
- *                 clearanceRateEstimate: 0.85
+ *                 maxStockLevel: 80
+ *                 reorderThreshold: 15
  *     responses:
  *       200:
- *         description: Tolerance set successfully
+ *         description: Warehouse inventory configuration set successfully
  *       400:
  *         description: Invalid data
  *       404:
  *         description: Product not found
  */
-router.post('/:id/warehouse-tolerance', controller.setWarehouseTolerance);
+router.post('/:id/warehouse-inventory-config', controller.setWarehouseInventoryConfig);
 
 export default router;

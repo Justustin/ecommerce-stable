@@ -103,84 +103,46 @@ export class WarehouseService {
     }
 
     /**
-     * Fulfill demand using grosir bundle configuration and warehouse tolerance
-     * More sophisticated than fulfillDemand - uses bundle-based calculations
+     * Fulfill demand using simplified grosir bundle composition
+     * Uses warehouse inventory max_stock_level and reorder_threshold
      */
     async fulfillBundleDemand(data: FulfillBundleDemandDTO) {
         const { productId, variantId, quantity } = data;
 
         console.log(`Bundle demand for product ${productId}, variant ${variantId}: ${quantity} units`);
 
-        // 1. Get bundle configuration for this variant
-        const bundleConfig = await prisma.grosir_bundle_config.findUnique({
+        // 1. Get bundle composition for this variant
+        const bundleComposition = await prisma.grosir_bundle_composition.findUnique({
             where: {
-                unique_bundle_config_product_variant: {
+                product_id_variant_id: {
                     product_id: productId,
                     variant_id: variantId || null
                 }
             }
         });
 
-        if (!bundleConfig) {
+        if (!bundleComposition) {
             throw new Error(
-                `Bundle configuration not found for product ${productId}, variant ${variantId}. ` +
-                `Please configure grosir_bundle_config table.`
+                `Bundle composition not found for product ${productId}, variant ${variantId}. ` +
+                `Please configure grosir_bundle_composition table.`
             );
         }
 
-        // 2. Get warehouse tolerance for this variant
-        const tolerance = await prisma.grosir_warehouse_tolerance.findUnique({
-            where: {
-                unique_tolerance_product_variant: {
-                    product_id: productId,
-                    variant_id: variantId || null
-                }
-            }
-        });
+        const unitsPerBundle = bundleComposition.units_in_bundle;
+        console.log(`Bundle composition: ${unitsPerBundle} units per bundle`);
 
-        if (!tolerance) {
-            throw new Error(
-                `Warehouse tolerance not found for product ${productId}, variant ${variantId}. ` +
-                `Please configure grosir_warehouse_tolerance table.`
-            );
-        }
-
-        const unitsPerBundle = bundleConfig.units_per_bundle;
-        const maxExcessUnits = tolerance.max_excess_units;
-
-        console.log(`Bundle config: ${unitsPerBundle} units/bundle, tolerance: ${maxExcessUnits} excess units`);
-
-        // 3. Calculate bundles needed
-        // bundlesNeeded = ceil(quantity / unitsPerBundle)
-        const bundlesNeeded = Math.ceil(quantity / unitsPerBundle);
-        const totalUnitsToOrder = bundlesNeeded * unitsPerBundle;
-        const excessUnits = totalUnitsToOrder - quantity;
-
-        console.log(`Calculated: need ${bundlesNeeded} bundles (${totalUnitsToOrder} units), excess: ${excessUnits}`);
-
-        // 4. Check if excess is within tolerance
-        if (excessUnits > maxExcessUnits) {
-            throw new Error(
-                `Excess units (${excessUnits}) exceeds warehouse tolerance (${maxExcessUnits}). ` +
-                `Cannot fulfill this demand without violating inventory constraints.`
-            );
-        }
-
-        // 5. Check current inventory
+        // 2. Check current inventory
         const inventory = await this.repository.findInventory(productId, variantId || null);
         const currentStock = inventory?.quantity || 0;
-        const availableStock = inventory?.available_quantity || 0;
+        const reservedStock = inventory?.reserved_quantity || 0;
+        const availableStock = currentStock - reservedStock;
 
-        console.log(`Current inventory: ${currentStock} total, ${availableStock} available`);
+        console.log(`Current inventory: ${currentStock} total, ${reservedStock} reserved, ${availableStock} available`);
 
-        // 6. Check if we have enough stock (in complete bundles)
-        const availableBundles = Math.floor(availableStock / unitsPerBundle);
-        const canFulfillFromStock = availableBundles >= bundlesNeeded;
+        // 3. If sufficient stock, reserve it
+        if (availableStock >= quantity) {
+            console.log(`Sufficient stock available`);
 
-        if (canFulfillFromStock) {
-            console.log(`Sufficient stock: ${availableBundles} bundles available, need ${bundlesNeeded}`);
-
-            // Reserve the exact quantity needed
             if (!inventory) {
                 throw new Error('Inventory record not found');
             }
@@ -188,30 +150,28 @@ export class WarehouseService {
             await prisma.warehouse_inventory.update({
                 where: { id: inventory.id },
                 data: {
-                    available_quantity: { decrement: quantity },
                     reserved_quantity: { increment: quantity }
                 }
             });
 
-            console.log(`Reserved ${quantity} units (${bundlesNeeded} bundles) from warehouse`);
+            console.log(`Reserved ${quantity} units from warehouse`);
 
             return {
                 message: "Demand fulfilled from existing stock.",
                 hasStock: true,
                 reserved: quantity,
-                bundlesUsed: bundlesNeeded,
-                excessUnits,
                 inventoryId: inventory.id
             };
         }
 
-        // 7. Insufficient stock - create purchase order for bundles
-        const bundlesToOrder = bundlesNeeded - availableBundles;
+        // 4. Insufficient stock - calculate how many bundles to order
+        const shortage = quantity - availableStock;
+        const bundlesToOrder = Math.ceil(shortage / unitsPerBundle);
         const unitsToOrder = bundlesToOrder * unitsPerBundle;
 
-        console.log(`Insufficient stock. Need ${bundlesToOrder} more bundles (${unitsToOrder} units)`);
+        console.log(`Insufficient stock. Shortage: ${shortage}, ordering ${bundlesToOrder} bundles (${unitsToOrder} units)`);
 
-        // 8. Get product and factory details
+        // 5. Get product and factory details
         const product = await prisma.products.findUnique({
             where: { id: productId },
             include: { factories: true }
@@ -223,10 +183,10 @@ export class WarehouseService {
 
         const factory = product.factories;
 
-        // 9. Calculate shipping cost for the PO
+        // 6. Calculate shipping cost for the PO
         const shippingCost = await this._calculateBulkShipping(factory, product, unitsToOrder);
 
-        // 10. Create purchase order
+        // 7. Create purchase order
         const unitCost = Number(product.cost_price || product.base_price);
         const totalCost = (unitCost * unitsToOrder) + shippingCost;
 
@@ -242,19 +202,54 @@ export class WarehouseService {
 
         console.log(`Created PO ${purchaseOrder.po_number} for ${bundlesToOrder} bundles (${unitsToOrder} units)`);
 
-        // 11. Send WhatsApp notification to factory
+        // 8. Send WhatsApp notification to factory
         await this._sendWhatsAppToFactory(factory, product, purchaseOrder, unitsToOrder, bundlesToOrder);
 
         return {
             message: "Insufficient stock. Purchase order created for bundles.",
             hasStock: false,
             purchaseOrder,
-            bundlesNeeded,
             bundlesToOrder,
             unitsToOrder,
-            excessUnits,
-            unitsPerBundle,
-            tolerance: maxExcessUnits
+            unitsPerBundle
+        };
+    }
+
+    /**
+     * Get inventory status for a product/variant
+     */
+    async getInventoryStatus(productId: string, variantId: string | null) {
+        const inventory = await this.repository.findInventory(productId, variantId);
+
+        if (!inventory) {
+            return {
+                status: 'not_configured',
+                quantity: 0,
+                availableQuantity: 0,
+                reservedQuantity: 0,
+                maxStockLevel: 0,
+                reorderThreshold: 0
+            };
+        }
+
+        const available = inventory.quantity - (inventory.reserved_quantity || 0);
+        let status = 'in_stock';
+
+        if (available <= 0) {
+            status = 'out_of_stock';
+        } else if (inventory.reorder_threshold !== null && inventory.quantity <= inventory.reorder_threshold) {
+            status = 'low_stock';
+        }
+
+        return {
+            productId,
+            variantId,
+            quantity: inventory.quantity,
+            reservedQuantity: inventory.reserved_quantity || 0,
+            availableQuantity: available,
+            maxStockLevel: inventory.max_stock_level || 0,
+            reorderThreshold: inventory.reorder_threshold || 0,
+            status
         };
     }
 

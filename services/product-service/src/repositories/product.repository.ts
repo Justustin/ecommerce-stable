@@ -213,44 +213,79 @@ export class ProductRepository {
   });
 }
 
-  // ============= Grosir Config Management =============
+  // ============= Grosir Config Management (Simplified) =============
 
-  async setGrosirAllocations(productId: string, allocations: { variantId: string | null; allocationQuantity: number }[]) {
-    // Delete existing allocations for this product
-    await prisma.grosir_variant_allocations.deleteMany({
-      where: { product_id: productId }
-    });
-
-    // Insert new allocations
-    return prisma.grosir_variant_allocations.createMany({
-      data: allocations.map(a => ({
-        product_id: productId,
-        variant_id: a.variantId,
-        allocation_quantity: a.allocationQuantity
-      }))
-    });
-  }
-
-  async setWarehouseTolerance(productId: string, tolerances: { variantId: string | null; maxExcessUnits: number; clearanceRateEstimate?: number }[]) {
-    // Upsert each tolerance
+  /**
+   * Set bundle composition - defines how many units of each variant go into a wholesale bundle
+   */
+  async setBundleComposition(productId: string, compositions: { variantId: string | null; unitsInBundle: number }[]) {
+    // Upsert each bundle composition
     const results = [];
-    for (const t of tolerances) {
-      const result = await prisma.grosir_warehouse_tolerance.upsert({
+    for (const comp of compositions) {
+      const result = await prisma.grosir_bundle_composition.upsert({
         where: {
           product_id_variant_id: {
             product_id: productId,
-            variant_id: t.variantId || 'null'
+            variant_id: comp.variantId || null
           }
         },
         create: {
           product_id: productId,
-          variant_id: t.variantId || 'null',
-          max_excess_units: t.maxExcessUnits,
-          clearance_rate_estimate: t.clearanceRateEstimate || 0.8
+          variant_id: comp.variantId || null,
+          units_in_bundle: comp.unitsInBundle
         },
         update: {
-          max_excess_units: t.maxExcessUnits,
-          clearance_rate_estimate: t.clearanceRateEstimate || 0.8
+          units_in_bundle: comp.unitsInBundle
+        }
+      });
+      results.push(result);
+
+      // Also ensure warehouse_inventory record exists
+      await prisma.warehouse_inventory.upsert({
+        where: {
+          product_id_variant_id: {
+            product_id: productId,
+            variant_id: comp.variantId || null
+          }
+        },
+        create: {
+          product_id: productId,
+          variant_id: comp.variantId || null,
+          quantity: 0,
+          reserved_quantity: 0,
+          max_stock_level: 0,
+          reorder_threshold: 0
+        },
+        update: {} // Don't overwrite existing inventory if it exists
+      });
+    }
+    return results;
+  }
+
+  /**
+   * Set warehouse inventory configuration - max stock level and reorder threshold
+   */
+  async setWarehouseInventoryConfig(productId: string, configs: { variantId: string | null; maxStockLevel: number; reorderThreshold: number }[]) {
+    const results = [];
+    for (const config of configs) {
+      const result = await prisma.warehouse_inventory.upsert({
+        where: {
+          product_id_variant_id: {
+            product_id: productId,
+            variant_id: config.variantId || null
+          }
+        },
+        create: {
+          product_id: productId,
+          variant_id: config.variantId || null,
+          quantity: 0,
+          reserved_quantity: 0,
+          max_stock_level: config.maxStockLevel,
+          reorder_threshold: config.reorderThreshold
+        },
+        update: {
+          max_stock_level: config.maxStockLevel,
+          reorder_threshold: config.reorderThreshold
         }
       });
       results.push(result);
@@ -258,9 +293,24 @@ export class ProductRepository {
     return results;
   }
 
+  /**
+   * Get grosir configuration - bundle composition and warehouse inventory settings
+   */
   async getGrosirConfig(productId: string) {
-    const [allocations, tolerances, product] = await Promise.all([
-      prisma.grosir_variant_allocations.findMany({
+    const [bundleCompositions, warehouseInventory, product] = await Promise.all([
+      prisma.grosir_bundle_composition.findMany({
+        where: { product_id: productId },
+        include: {
+          product_variants: {
+            select: {
+              id: true,
+              variant_name: true,
+              sku: true
+            }
+          }
+        }
+      }),
+      prisma.warehouse_inventory.findMany({
         where: { product_id: productId },
         include: {
           product_variants: {
@@ -270,9 +320,6 @@ export class ProductRepository {
             }
           }
         }
-      }),
-      prisma.grosir_warehouse_tolerance.findMany({
-        where: { product_id: productId }
       }),
       prisma.products.findUnique({
         where: { id: productId },
@@ -286,8 +333,8 @@ export class ProductRepository {
 
     return {
       product,
-      allocations,
-      tolerances
+      bundleCompositions,
+      warehouseInventory
     };
   }
 }

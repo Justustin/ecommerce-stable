@@ -105,20 +105,23 @@ export class ProductController {
     }
   };
 
-  // ============= Grosir Config Management =============
+  // ============= Grosir Config Management (Simplified) =============
 
-  setGrosirAllocations = async (req: Request, res: Response) => {
+  /**
+   * Set bundle composition - defines units per bundle for each variant
+   */
+  setBundleComposition = async (req: Request, res: Response) => {
     try {
-      const { allocations } = req.body;
+      const { compositions } = req.body;
 
-      if (!allocations || !Array.isArray(allocations) || allocations.length === 0) {
-        return res.status(400).json({ error: 'Allocations array is required' });
+      if (!compositions || !Array.isArray(compositions) || compositions.length === 0) {
+        return res.status(400).json({ error: 'Compositions array is required' });
       }
 
-      const result = await this.service.setGrosirAllocations(req.params.id, allocations);
+      const result = await this.service.setBundleComposition(req.params.id, compositions);
       res.json({
         success: true,
-        message: 'Grosir allocations set successfully',
+        message: 'Bundle composition set successfully',
         data: result
       });
     } catch (error: any) {
@@ -126,18 +129,21 @@ export class ProductController {
     }
   };
 
-  setWarehouseTolerance = async (req: Request, res: Response) => {
+  /**
+   * Set warehouse inventory configuration - max stock and reorder thresholds
+   */
+  setWarehouseInventoryConfig = async (req: Request, res: Response) => {
     try {
-      const { tolerances } = req.body;
+      const { configs } = req.body;
 
-      if (!tolerances || !Array.isArray(tolerances) || tolerances.length === 0) {
-        return res.status(400).json({ error: 'Tolerances array is required' });
+      if (!configs || !Array.isArray(configs) || configs.length === 0) {
+        return res.status(400).json({ error: 'Configs array is required' });
       }
 
-      const result = await this.service.setWarehouseTolerance(req.params.id, tolerances);
+      const result = await this.service.setWarehouseInventoryConfig(req.params.id, configs);
       res.json({
         success: true,
-        message: 'Warehouse tolerance set successfully',
+        message: 'Warehouse inventory configuration set successfully',
         data: result
       });
     } catch (error: any) {
@@ -145,6 +151,9 @@ export class ProductController {
     }
   };
 
+  /**
+   * Get grosir configuration
+   */
   getGrosirConfig = async (req: Request, res: Response) => {
     try {
       const config = await this.service.getGrosirConfig(req.params.id);
