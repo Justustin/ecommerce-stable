@@ -76,4 +76,44 @@ router.post('/fulfill-bundle-demand', [
     body('wholesaleUnit').isInt({ gt: 0 }),
 ], controller.fulfillBundleDemand);
 
+/**
+ * @swagger
+ * /api/inventory/status:
+ *   get:
+ *     summary: Get inventory status for a product/variant
+ *     tags: [Warehouse]
+ *     parameters:
+ *       - in: query
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: variantId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Inventory status retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: 'boolean' }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     quantity: { type: 'integer' }
+ *                     reservedQuantity: { type: 'integer' }
+ *                     availableQuantity: { type: 'integer' }
+ *                     maxStockLevel: { type: 'integer' }
+ *                     reorderThreshold: { type: 'integer' }
+ *                     status: { type: 'string' }
+ *       500: { description: 'Internal server error' }
+ */
+router.get('/inventory/status', controller.getInventoryStatus);
+
 export default router;

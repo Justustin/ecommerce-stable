@@ -332,96 +332,67 @@ export class GroupBuyingService {
    * - Least = 0, so M capped at 0 + (2*3) = 6 ← LOCKED
    * - When others reach 3, M can order 3 more (up to 9)
    */
+  /**
+   * Get variant availability by checking warehouse inventory
+   * Calls warehouse-service to get actual stock status
+   */
   async getVariantAvailability(sessionId: string, variantId: string | null) {
     const session = await this.repository.findById(sessionId);
     if (!session) {
       throw new Error('Session not found');
     }
 
-    const { prisma } = await import('@repo/database');
+    const warehouseServiceUrl = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3008';
 
-    // Get ALL variant allocations for this product
-    const allocations = await prisma.grosir_variant_allocations.findMany({
-      where: {
-        product_id: session.product_id
-      }
-    });
-
-    if (allocations.length === 0) {
-      throw new Error(
-        `Variant allocation not configured for this product. ` +
-        `Please contact factory to set up grosir allocations.`
-      );
-    }
-
-    // Get requested variant's allocation
-    const requestedAllocation = allocations.find(
-      a => (a.variant_id || null) === (variantId || null)
-    );
-
-    if (!requestedAllocation) {
-      throw new Error(`Variant not found in grosir allocation configuration.`);
-    }
-
-    // Get warehouse tolerance configuration for this variant
-    const tolerance = await prisma.grosir_warehouse_tolerance.findUnique({
-      where: {
-        product_id_variant_id: {
-          product_id: session.product_id,
-          variant_id: variantId || "null"
+    try {
+      // Call warehouse service to get inventory status
+      const response = await axios.get(
+        `${warehouseServiceUrl}/api/inventory/status`,
+        {
+          params: {
+            productId: session.product_id,
+            variantId: variantId || undefined
+          }
         }
-      }
-    });
-
-    if (!tolerance) {
-      throw new Error(
-        `Warehouse tolerance not configured for this product variant. ` +
-        `Please contact admin to set up warehouse tolerance.`
       );
+
+      const inventoryStatus = response.data.data;
+
+      logger.info('Variant availability from warehouse', {
+        sessionId,
+        variantId,
+        inventoryStatus
+      });
+
+      return {
+        variantId,
+        quantity: inventoryStatus.quantity,
+        reservedQuantity: inventoryStatus.reservedQuantity,
+        availableQuantity: inventoryStatus.availableQuantity,
+        maxStockLevel: inventoryStatus.maxStockLevel,
+        available: inventoryStatus.availableQuantity,
+        isLocked: inventoryStatus.availableQuantity <= 0,
+        status: inventoryStatus.status
+      };
+    } catch (error: any) {
+      logger.error('Failed to get inventory status from warehouse', {
+        sessionId,
+        variantId,
+        error: error.message
+      });
+
+      // If warehouse service is unavailable, return a safe default
+      return {
+        variantId,
+        quantity: 0,
+        reservedQuantity: 0,
+        availableQuantity: 0,
+        maxStockLevel: 0,
+        available: 0,
+        isLocked: true,
+        status: 'service_unavailable'
+      };
     }
-
-    // Get ALL participants in this session (exclude bots)
-    const allParticipants = await prisma.group_participants.findMany({
-      where: {
-        group_session_id: sessionId,
-        is_bot_participant: false  // Don't count bot in variant calculations
-      }
-    });
-
-    // Current orders for requested variant
-    const currentOrdered = allParticipants
-      .filter(p => (p.variant_id || null) === (variantId || null))
-      .reduce((sum, p) => sum + p.quantity, 0);
-
-    // WAREHOUSE TOLERANCE ALGORITHM
-    // maxAllowed = allocation + max_excess_units (from warehouse tolerance config)
-    const maxAllowed = requestedAllocation.allocation_quantity + tolerance.max_excess_units;
-    const available = Math.max(0, maxAllowed - currentOrdered);
-
-    logger.info('Variant availability calculated (warehouse tolerance)', {
-      sessionId,
-      variantId,
-      allocation: requestedAllocation.allocation_quantity,
-      maxExcessUnits: tolerance.max_excess_units,
-      maxAllowed,
-      currentOrdered,
-      available,
-      isLocked: available <= 0
-    });
-
-    return {
-      variantId,
-      allocation: requestedAllocation.allocation_quantity,
-      maxAllowed,
-      totalOrdered: currentOrdered,
-      available,
-      isLocked: available <= 0,
-      // Additional context for debugging
-      tolerance: {
-        maxExcessUnits: tolerance.max_excess_units,
-        clearanceRateEstimate: tolerance.clearance_rate_estimate
-      }
-    };
   }
 
   /**
