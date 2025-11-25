@@ -570,4 +570,133 @@ export class GroupBuyingRepository {
       data: { order_id: orderId }
     });
   }
+
+  async getVariantParticipants(sessionId: string, variantId: string | null) {
+    return this.prisma.group_participants.findMany({
+      where: {
+        group_session_id: sessionId,
+        variant_id: variantId,
+        is_bot_participant: false
+      },
+      select: {
+        id: true,
+        quantity: true,
+        variant_id: true
+      }
+    });
+  }
+
+  async createBotParticipant(sessionId: string, botUserId: string, quantity: number, unitPrice: number) {
+    return this.prisma.group_participants.create({
+      data: {
+        group_session_id: sessionId,
+        user_id: botUserId,
+        quantity,
+        variant_id: null,
+        unit_price: unitPrice,
+        total_price: unitPrice * quantity,
+        is_bot_participant: true,
+        joined_at: new Date()
+      }
+    });
+  }
+
+  async removeBotParticipant(botParticipantId: string) {
+    return this.prisma.group_participants.delete({
+      where: { id: botParticipantId }
+    });
+  }
+
+  async updateSessionBotInfo(sessionId: string, botParticipantId: string, botQuantity?: number) {
+    return this.prisma.group_buying_sessions.update({
+      where: { id: sessionId },
+      data: {
+        bot_participant_id: botParticipantId,
+        ...(botQuantity !== undefined && { platform_bot_quantity: botQuantity })
+      }
+    });
+  }
+
+  async updateSessionWarehouseInfo(sessionId: string, data: {
+    warehouseCheckAt?: Date;
+    warehouseHasStock?: boolean;
+    grosirUnitsNeeded?: number;
+    factoryWhatsappSent?: boolean;
+    factoryNotifiedAt?: Date | null;
+  }) {
+    return this.prisma.group_buying_sessions.update({
+      where: { id: sessionId },
+      data: {
+        ...(data.warehouseCheckAt && { warehouse_check_at: data.warehouseCheckAt }),
+        ...(data.warehouseHasStock !== undefined && { warehouse_has_stock: data.warehouseHasStock }),
+        ...(data.grosirUnitsNeeded !== undefined && { grosir_units_needed: data.grosirUnitsNeeded }),
+        ...(data.factoryWhatsappSent !== undefined && { factory_whatsapp_sent: data.factoryWhatsappSent }),
+        ...(data.factoryNotifiedAt !== undefined && { factory_notified_at: data.factoryNotifiedAt })
+      }
+    });
+  }
+
+  async updateSessionTier(sessionId: string, tier: number) {
+    return this.prisma.group_buying_sessions.update({
+      where: { id: sessionId },
+      data: {
+        current_tier: tier,
+        updated_at: new Date()
+      }
+    });
+  }
+
+  async updateSessionTierAndPrice(sessionId: string, tier: number, price: number) {
+    return this.prisma.group_buying_sessions.update({
+      where: { id: sessionId },
+      data: {
+        current_tier: tier,
+        group_price: price,
+        updated_at: new Date()
+      }
+    });
+  }
+
+  async setSessionEndTime(sessionId: string, endTime: Date) {
+    return this.prisma.group_buying_sessions.update({
+      where: { id: sessionId },
+      data: { end_time: endTime }
+    });
+  }
+
+  async getRealParticipants(sessionId: string) {
+    return this.prisma.group_participants.findMany({
+      where: {
+        group_session_id: sessionId,
+        is_bot_participant: false
+      }
+    });
+  }
+
+  async getAllParticipants(sessionId: string) {
+    return this.prisma.group_participants.findMany({
+      where: { group_session_id: sessionId }
+    });
+  }
+
+  async findSessionsNearingExpiration(minutesAhead: number) {
+    const now = new Date();
+    const futureTime = new Date(now.getTime() + minutesAhead * 60 * 1000);
+    const pastTime = new Date(now.getTime() + (minutesAhead - 2) * 60 * 1000);
+
+    return this.prisma.group_buying_sessions.findMany({
+      where: {
+        status: 'forming',
+        end_time: {
+          gte: pastTime,
+          lte: futureTime
+        },
+        bot_participant_id: null
+      },
+      include: {
+        group_participants: true,
+        products: true
+      }
+    });
+  }
 }

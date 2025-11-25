@@ -517,13 +517,11 @@ export class GroupBuyingService {
   }
 
   /**
-   * Get variant availability for grosir allocation system
-   * DYNAMIC CAP: A variant can only be 2x allocation AHEAD of the least ordered variant
+   * Get variant availability (SIMPLIFIED MODEL)
    *
-   * Example: MOQ=12 (3S, 3M, 3L, 3XL per grosir)
-   * - Orders: 6M, 0S, 0L, 0XL
-   * - Least = 0, so M capped at 0 + (2*3) = 6 ← LOCKED
-   * - When others reach 3, M can order 3 more (up to 9)
+   * NOTE: The simplified inventory model removed variant allocation limits.
+   * This method now just returns basic availability info without constraints.
+   * Warehouse inventory is checked separately when the session expires.
    */
   async getVariantAvailability(sessionId: string, variantId: string | null) {
     const session = await this.repository.findById(sessionId);
@@ -531,89 +529,24 @@ export class GroupBuyingService {
       throw new Error('Session not found');
     }
 
-    const { prisma } = await import('@repo/database');
+    // Get current orders for this variant (excluding bots)
+    const participants = await this.repository.getVariantParticipants(sessionId, variantId);
+    const currentOrdered = participants.reduce((sum, p) => sum + p.quantity, 0);
 
-    // Get ALL variant allocations for this product
-    const allocations = await prisma.grosir_variant_allocations.findMany({
-      where: {
-        product_id: session.product_id
-      }
-    });
-
-    if (allocations.length === 0) {
-      throw new Error(
-        `Variant allocation not configured for this product. ` +
-        `Please contact factory to set up grosir allocations.`
-      );
-    }
-
-    // Get requested variant's allocation
-    const requestedAllocation = allocations.find(
-      a => (a.variant_id || null) === (variantId || null)
-    );
-
-    if (!requestedAllocation) {
-      throw new Error(`Variant not found in grosir allocation configuration.`);
-    }
-
-    // Get warehouse tolerance configuration for this variant
-    const tolerance = await prisma.grosir_warehouse_tolerance.findUnique({
-      where: {
-        product_id_variant_id: {
-          product_id: session.product_id,
-          variant_id: variantId || "null"
-        }
-      }
-    });
-
-    if (!tolerance) {
-      throw new Error(
-        `Warehouse tolerance not configured for this product variant. ` +
-        `Please contact admin to set up warehouse tolerance.`
-      );
-    }
-
-    // Get ALL participants in this session (exclude bots)
-    const allParticipants = await prisma.group_participants.findMany({
-      where: {
-        group_session_id: sessionId,
-        is_bot_participant: false  // Don't count bot in variant calculations
-      }
-    });
-
-    // Current orders for requested variant
-    const currentOrdered = allParticipants
-      .filter(p => (p.variant_id || null) === (variantId || null))
-      .reduce((sum, p) => sum + p.quantity, 0);
-
-    // WAREHOUSE TOLERANCE ALGORITHM
-    // maxAllowed = allocation + max_excess_units (from warehouse tolerance config)
-    const maxAllowed = requestedAllocation.allocation_quantity + tolerance.max_excess_units;
-    const available = Math.max(0, maxAllowed - currentOrdered);
-
-    logger.info('Variant availability calculated (warehouse tolerance)', {
+    logger.info('Variant availability checked (simplified model)', {
       sessionId,
       variantId,
-      allocation: requestedAllocation.allocation_quantity,
-      maxExcessUnits: tolerance.max_excess_units,
-      maxAllowed,
-      currentOrdered,
-      available,
-      isLocked: available <= 0
+      currentOrdered
     });
 
+    // In simplified model, variants are not constrained during session formation
+    // Return availability info for informational purposes only
     return {
       variantId,
-      allocation: requestedAllocation.allocation_quantity,
-      maxAllowed,
       totalOrdered: currentOrdered,
-      available,
-      isLocked: available <= 0,
-      // Additional context for debugging
-      tolerance: {
-        maxExcessUnits: tolerance.max_excess_units,
-        clearanceRateEstimate: tolerance.clearance_rate_estimate
-      }
+      available: 999999, // No limit in simplified model
+      isLocked: false, // Never locked in simplified model
+      note: 'Simplified inventory model - no variant constraints during session'
     };
   }
 
@@ -626,8 +559,6 @@ export class GroupBuyingService {
     if (!session) {
       throw new Error('Session not found');
     }
-
-    const { prisma } = await import('@repo/database');
 
     // Define type for warehouse response
     interface WarehouseFulfillmentResult {
@@ -644,12 +575,7 @@ export class GroupBuyingService {
     try {
       // Get all variant quantities from REAL participants only (exclude bot)
       // Bot is illusion - warehouse should only stock for real customer orders
-      const participants = await prisma.group_participants.findMany({
-        where: {
-          group_session_id: sessionId,
-          is_bot_participant: false  // CRITICAL: Exclude bot from warehouse demand
-        }
-      });
+      const participants = await this.repository.getRealParticipants(sessionId);
 
       // Group by variant
       const variantDemands = participants.reduce((acc, p) => {
@@ -684,16 +610,12 @@ export class GroupBuyingService {
         .reduce((sum, r) => sum + (r.grosirUnitsNeeded || 0), 0);
 
       // Update session with warehouse check results
-      await prisma.group_buying_sessions.update({
-        where: { id: sessionId },
-        data: {
-          warehouse_check_at: new Date(),
-          warehouse_has_stock: allInStock,
-          grosir_units_needed: totalGrosirNeeded,
-          // WhatsApp sent by warehouse service if no stock
-          factory_whatsapp_sent: !allInStock,
-          factory_notified_at: !allInStock ? new Date() : null
-        }
+      await this.repository.updateSessionWarehouseInfo(sessionId, {
+        warehouseCheckAt: new Date(),
+        warehouseHasStock: allInStock,
+        grosirUnitsNeeded: totalGrosirNeeded,
+        factoryWhatsappSent: !allInStock,
+        factoryNotifiedAt: !allInStock ? new Date() : null
       });
 
       logger.info('Warehouse demand fulfilled', {
@@ -867,27 +789,8 @@ export class GroupBuyingService {
    * Creates bot participant if < 25% filled to ensure minimum fill
    */
   async processSessionsNearingExpiration() {
-    const { prisma } = await import('@repo/database');
-
-    // Find sessions expiring in 8-10 minutes
+    const nearExpiringSessions = await this.repository.findSessionsNearingExpiration(10);
     const now = new Date();
-    const tenMinutesLater = new Date(now.getTime() + 10 * 60 * 1000);
-    const eightMinutesLater = new Date(now.getTime() + 8 * 60 * 1000);
-
-    const nearExpiringSessions = await prisma.group_buying_sessions.findMany({
-      where: {
-        status: 'forming',
-        end_time: {
-          gte: eightMinutesLater,
-          lte: tenMinutesLater
-        },
-        bot_participant_id: null  // Only sessions without bot yet
-      },
-      include: {
-        group_participants: true,
-        products: true
-      }
-    });
 
     const results: Array<{
       sessionId: string;
@@ -936,27 +839,15 @@ export class GroupBuyingService {
         }
 
         // Create bot participant
-        const botParticipant = await prisma.group_participants.create({
-          data: {
-            group_session_id: session.id,
-            user_id: botUserId,
-            quantity: botQuantity,
-            variant_id: null,
-            unit_price: Number(session.group_price),
-            total_price: Number(session.group_price) * botQuantity,
-            is_bot_participant: true,
-            joined_at: new Date()
-          }
-        });
+        const botParticipant = await this.repository.createBotParticipant(
+          session.id,
+          botUserId,
+          botQuantity,
+          Number(session.group_price)
+        );
 
         // Update session with bot reference
-        await prisma.group_buying_sessions.update({
-          where: { id: session.id },
-          data: {
-            bot_participant_id: botParticipant.id,
-            platform_bot_quantity: botQuantity
-          }
-        });
+        await this.repository.updateSessionBotInfo(session.id, botParticipant.id, botQuantity);
 
         // Create bot payment record via API
         try {
@@ -1084,8 +975,6 @@ export class GroupBuyingService {
       }
 
       // TIERING SYSTEM: Calculate final tier and issue refunds
-      const { prisma } = await import('@repo/database');
-
       // Get all REAL participants (exclude any existing bots)
       const realParticipants = fullSession.group_participants.filter(p => !p.is_bot_participant);
       const realQuantity = realParticipants.reduce((sum, p) => sum + p.quantity, 0);
@@ -1108,23 +997,14 @@ export class GroupBuyingService {
           const botUserId = process.env.BOT_USER_ID;
           if (botUserId) {
             try {
-              const botParticipant = await prisma.group_participants.create({
-                data: {
-                  group_session_id: session.id,
-                  user_id: botUserId,
-                  quantity: botQuantity,
-                  variant_id: null,
-                  unit_price: Number(fullSession.group_price), // Base price
-                  total_price: Number(fullSession.group_price) * botQuantity,
-                  is_bot_participant: true,
-                  joined_at: new Date()
-                }
-              });
+              const botParticipant = await this.repository.createBotParticipant(
+                session.id,
+                botUserId,
+                botQuantity,
+                Number(fullSession.group_price)
+              );
 
-              await prisma.group_buying_sessions.update({
-                where: { id: session.id },
-                data: { bot_participant_id: botParticipant.id }
-              });
+              await this.repository.updateSessionBotInfo(session.id, botParticipant.id);
 
               // Create payment record for bot participant via API (for audit/accounting)
               try {
@@ -1168,9 +1048,7 @@ export class GroupBuyingService {
       // Determine final tier based on ALL participants INCLUDING BOT
       // This gives customers tier discounts even with low participation
       // Reload participants to include bot if it was just created
-      const allParticipants = await prisma.group_participants.findMany({
-        where: { group_session_id: session.id }
-      });
+      const allParticipants = await this.repository.getAllParticipants(session.id);
       const totalQuantity = allParticipants.reduce((sum, p) => sum + p.quantity, 0);
       const totalFillPercentage = (totalQuantity / fullSession.target_moq) * 100;
 
@@ -1198,13 +1076,7 @@ export class GroupBuyingService {
       });
 
       // Update session with final tier
-      await prisma.group_buying_sessions.update({
-        where: { id: session.id },
-        data: {
-          current_tier: finalTier,
-          updated_at: new Date()
-        }
-      });
+      await this.repository.updateSessionTier(session.id, finalTier);
 
       logger.info('Final tier determined', {
         sessionId: session.id,
@@ -1528,13 +1400,8 @@ export class GroupBuyingService {
    * Sets end_time to now and immediately processes the session
    */
   async manuallyExpireAndProcess(sessionId: string) {
-    const { prisma } = await import('@repo/database');
-
     // Set end_time to past so it's considered expired
-    await prisma.group_buying_sessions.update({
-      where: { id: sessionId },
-      data: { end_time: new Date(Date.now() - 1000) } // 1 second ago
-    });
+    await this.repository.setSessionEndTime(sessionId, new Date(Date.now() - 1000));
 
     logger.info('Session manually expired for testing', { sessionId });
 
@@ -1568,26 +1435,15 @@ export class GroupBuyingService {
     const botQuantity = Math.ceil(session.target_moq * 0.25);
     const botPrice = Number(session.price_tier_25 || session.group_price);
 
-    const { prisma } = await import('@repo/database');
-
-    const botParticipant = await prisma.group_participants.create({
-      data: {
-        group_session_id: sessionId,
-        user_id: botUserId,
-        quantity: botQuantity,
-        variant_id: null,  // Bot buys base product (no variant)
-        unit_price: botPrice,
-        total_price: botPrice * botQuantity,
-        is_bot_participant: true,
-        joined_at: new Date()
-      }
-    });
+    const botParticipant = await this.repository.createBotParticipant(
+      sessionId,
+      botUserId,
+      botQuantity,
+      botPrice
+    );
 
     // Update session with bot participant ID
-    await prisma.group_buying_sessions.update({
-      where: { id: sessionId },
-      data: { bot_participant_id: botParticipant.id }
-    });
+    await this.repository.updateSessionBotInfo(sessionId, botParticipant.id);
 
     logger.info(`Bot joined session ${session.session_code}`, {
       sessionId: sessionId,
@@ -1612,15 +1468,8 @@ export class GroupBuyingService {
       return;
     }
 
-    const { prisma } = await import('@repo/database');
-
     // Get REAL participants only (exclude bot)
-    const realParticipants = await prisma.group_participants.findMany({
-      where: {
-        group_session_id: sessionId,
-        is_bot_participant: false
-      }
-    });
+    const realParticipants = await this.repository.getRealParticipants(sessionId);
 
     // Calculate total quantity ordered by real users
     const realQuantity = realParticipants.reduce((sum, p) => sum + p.quantity, 0);
@@ -1643,14 +1492,7 @@ export class GroupBuyingService {
 
     // Update session if tier changed
     if (newTier !== session.current_tier) {
-      await prisma.group_buying_sessions.update({
-        where: { id: sessionId },
-        data: {
-          current_tier: newTier,
-          group_price: newPrice,
-          updated_at: new Date()
-        }
-      });
+      await this.repository.updateSessionTierAndPrice(sessionId, newTier, newPrice);
 
       logger.info(`Session ${session.session_code} upgraded to tier ${newTier}%`, {
         sessionId,
@@ -1672,12 +1514,8 @@ export class GroupBuyingService {
    * Bot is removed so no order is created for it (no real payment needed)
    */
   private async removeBotParticipant(botParticipantId: string) {
-    const { prisma } = await import('@repo/database');
-
     // Bot participant is removed - no order created, no payment needed
-    await prisma.group_participants.delete({
-      where: { id: botParticipantId }
-    });
+    await this.repository.removeBotParticipant(botParticipantId);
 
     logger.info(`Removed bot participant`, {
       botParticipantId
