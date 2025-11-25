@@ -1,8 +1,14 @@
 # COMPREHENSIVE BACKEND FLOW SUMMARY
 
-**Date:** November 17, 2025
-**Status:** Complete Backend Logic Flow Documentation
-**Branch:** `claude/review-backend-logic-flow-011CV2AXqzc32N6rccnM3qhF`
+**Date:** November 25, 2025 (Updated)
+**Status:** Complete Backend Logic Flow Documentation - Simplified Inventory Model
+**Branch:** `simplified-inventory-work`
+
+**⚠️ IMPORTANT:** This documentation reflects the **SIMPLIFIED INVENTORY MODEL**
+- Uses `grosir_bundle_composition` (not grosir_bundle_config)
+- Uses `warehouse_inventory` with max_stock_level and reorder_threshold
+- NO tolerance or allocation tables needed
+- Simpler stock checking logic
 
 ---
 
@@ -782,80 +788,81 @@ If factory ships 7 bundles:
 Total excess: 26 units (warehouse must absorb)
 ```
 
-### Solution: Warehouse Tolerance System
+### Solution: Simplified Warehouse Inventory System
 
-**Database Schema:**
+**Database Schema (CURRENT - Simplified Model):**
 
 ```sql
--- Bundle composition per product
-grosir_bundle_config:
-  product_id, variant_id, units_per_bundle
-  Example: (shirt-123, M-uuid, 5)  -- 5 M per bundle
+-- Bundle composition per product/variant
+grosir_bundle_composition:
+  product_id, variant_id, units_in_bundle
+  Example: (shirt-123, M-uuid, 4)  -- 4 M shirts per bundle
 
--- Warehouse tolerance per variant
-grosir_warehouse_tolerance:
-  product_id, variant_id, max_excess_units
-  Example: (shirt-123, M-uuid, 50)  -- Max 50 excess M units OK
+-- Warehouse inventory tracking
+warehouse_inventory:
+  product_id, variant_id, quantity, reserved_quantity,
+  max_stock_level, reorder_threshold
+  Example: (shirt-123, M-uuid, quantity=50, reserved=10,
+           max_stock_level=100, reorder_threshold=20)
 ```
 
-### Algorithm (in getVariantAvailability):
+**Deprecated Tables (DO NOT USE):**
+- ❌ `grosir_bundle_config` → Use `grosir_bundle_composition`
+- ❌ `grosir_warehouse_tolerance` → Use `warehouse_inventory` config
+- ❌ `grosir_variant_allocations` → Not needed
+
+### Algorithm (Simplified - in getInventoryStatus):
 
 ```typescript
-// Called when user tries to join session with variant
+// Called by group-buying-service to check availability
 
-STEP 1: Get bundle config for this variant
-  bundleConfig = { units_per_bundle: 5 }
+STEP 1: Get warehouse inventory
+  inventory = warehouse_inventory.findUnique({
+    where: { product_id, variant_id }
+  })
 
-STEP 2: Get warehouse tolerance
-  tolerance = { max_excess_units: 50 }
+STEP 2: Calculate available stock
+  availableQuantity = inventory.quantity - inventory.reserved_quantity
 
-STEP 3: Count current orders for this variant (REAL participants only)
-  currentOrdered = 35
+STEP 3: Check stock status
+  if (availableQuantity <= 0)
+    status = 'out_of_stock'
+  else if (inventory.quantity <= inventory.reorder_threshold)
+    status = 'low_stock'
+  else
+    status = 'in_stock'
 
-STEP 4: Calculate bundles needed for THIS variant
-  bundlesNeededForMe = ceil(35 / 5) = 7
-
-STEP 5: Get bundles needed for ALL other variants
-  S needs: ceil(8/2) = 4
-  M needs: ceil(35/5) = 7
-  L needs: ceil(12/4) = 3
-  XL needs: ceil(3/1) = 3
-
-  maxBundlesNeeded = max(4,7,3,3) = 7
-
-STEP 6: Calculate excess if we produce 7 bundles
-  willProduce = 7 × 5 = 35 (for M)
-  excess = 35 - 35 = 0
-
-  If excess > 50: Lock variant
-  Else: Allow ordering
-
-STEP 7: Calculate how much user can order
-  maxCanProduce = maxBundles × units_per_bundle
-  available = maxCanProduce - currentOrdered
-
+STEP 4: Return inventory status
   Return: {
-    available: number,
-    isLocked: boolean,
-    maxAllowed: number
+    quantity: inventory.quantity,
+    reservedQuantity: inventory.reserved_quantity,
+    availableQuantity: availableQuantity,
+    maxStockLevel: inventory.max_stock_level,
+    reorderThreshold: inventory.reorder_threshold,
+    status: status
   }
+
+// Group-buying-service uses this to decide if user can join
+if (availableQuantity >= requestedQuantity) {
+  // Allow user to join session
+} else {
+  // Show "out of stock" or "insufficient stock"
+}
 ```
 
-### User Experience:
+### User Experience (Simplified):
 
 ```
 User A wants 40 M shirts:
-  Current M orders: 35
-  Bundle size: 5
-  Tolerance: 50
+  Check inventory:
+    quantity: 50
+    reserved: 10
+    available: 40 ✓
 
-  Will need: ceil(75/5) = 15 bundles
-  Will produce: 15×5 = 75 M
-  Excess: 75-75 = 0 ✓
+  If available >= requested: Allow
+  Else: "Insufficient stock available"
 
-  Check other variants for tolerance violations...
-  If all OK: Allow
-  If any locked: "Variant locked - other sizes need to catch up"
+No complex tolerance or allocation calculations needed.
 ```
 
 ---
@@ -882,51 +889,35 @@ Request:
     ]
   }
 
-Warehouse Service: fulfillBundleDemand()
+Warehouse Service: fulfillBundleDemand() (SIMPLIFIED)
 
-STEP 1: Get Bundle Configuration
-  Query grosir_bundle_config:
-    S:  2 units/bundle
-    M:  5 units/bundle
+STEP 1: Get Bundle Composition
+  Query grosir_bundle_composition:
+    S:  4 units/bundle
+    M:  4 units/bundle
     L:  4 units/bundle
-    XL: 1 unit/bundle
+    XL: 4 units/bundle
 
-STEP 2: Get Warehouse Tolerance
-  Query grosir_warehouse_tolerance:
-    S:  max 20 excess
-    M:  max 50 excess
-    L:  max 40 excess
-    XL: max 30 excess
-
-STEP 3: Check Current Inventory
+STEP 2: Check Current Inventory
   Query warehouse_inventory:
-    S:  0 available, 0 reserved
-    M:  10 available, 0 reserved
-    L:  0 available, 0 reserved
-    XL: 2 available, 0 reserved
+    S:  quantity=0, reserved=0, available=0
+    M:  quantity=10, reserved=0, available=10
+    L:  quantity=0, reserved=0, available=0
+    XL: quantity=2, reserved=0, available=2
 
-STEP 4: Calculate Net Demand
-  S:  20 - 0 = 20 needed
-  M:  38 - 10 = 28 needed
-  L:  25 - 0 = 25 needed
-  XL: 5 - 2 = 3 needed
+STEP 3: For each variant, check if stock is sufficient
+  S:  20 needed, 0 available → Need 20 more
+  M:  38 needed, 10 available → Need 28 more
+  L:  25 needed, 0 available → Need 25 more
+  XL: 5 needed, 2 available → Need 3 more
 
-STEP 5: Calculate Bundles Needed Per Variant
-  S:  ceil(20/2) = 10 bundles
-  M:  ceil(28/5) = 6 bundles
-  L:  ceil(25/4) = 7 bundles
-  XL: ceil(3/1) = 3 bundles
+STEP 4: Calculate bundles to order per variant (independently)
+  S:  ceil(20/4) = 5 bundles × 4 = 20 units
+  M:  ceil(28/4) = 7 bundles × 4 = 28 units
+  L:  ceil(25/4) = 7 bundles × 4 = 28 units (3 excess)
+  XL: ceil(3/4) = 1 bundle × 4 = 4 units (1 excess)
 
-  maxBundlesNeeded = max(10,6,7,3) = 10 bundles
-
-STEP 6: Check Tolerance Constraints
-  If we produce 10 bundles:
-    S:  10×2=20 produced, 20 demand → 0 excess ✓ (≤20)
-    M:  10×5=50 produced, 38 demand → 12 excess ✓ (≤50)
-    L:  10×4=40 produced, 25 demand → 15 excess ✓ (≤40)
-    XL: 10×1=10 produced, 5 demand → 5 excess ✓ (≤30)
-
-  All within tolerance!
+No complex tolerance checking - warehouse simply orders what's needed.
 
 STEP 7a: IF ALL IN STOCK
   Reserve inventory:
