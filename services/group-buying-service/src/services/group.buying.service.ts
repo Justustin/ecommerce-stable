@@ -356,8 +356,61 @@ export class GroupBuyingService {
             throw new Error('Quantity must be at least 1')
         }
 
-        // NOTE: Simplified inventory model - variant allocation checks removed
-        // Warehouse inventory is validated when the session expires, not during join
+        // Check warehouse inventory availability
+        try {
+            const inventoryCheck = await axios.get(
+                `${WAREHOUSE_SERVICE_URL}/api/warehouse/inventory/status`,
+                {
+                    params: {
+                        productId: session.product_id,
+                        variantId: data.variantId || null
+                    },
+                    timeout: 5000
+                }
+            );
+
+            const inventory = inventoryCheck.data.data;
+
+            // Check if enough stock is available (current + what can be ordered)
+            const availableQuantity = inventory.availableQuantity || 0;
+            const maxStock = inventory.maxStockLevel || 0;
+
+            // If no stock and no room to order more, reject
+            if (availableQuantity === 0 && maxStock === 0) {
+                throw new Error(
+                    `This product variant is currently not available. ` +
+                    `Please try again later or contact support.`
+                );
+            }
+
+            // If stock is low, warn but don't block (warehouse can order from factory)
+            if (availableQuantity < data.quantity) {
+                logger.info('Low stock warning - will need factory order', {
+                    sessionId: data.groupSessionId,
+                    variantId: data.variantId,
+                    requested: data.quantity,
+                    available: availableQuantity,
+                    maxStock
+                });
+            }
+        } catch (error: any) {
+            // If warehouse service is down or product not configured, allow join
+            // Inventory will be checked again at session expiry
+            if (error.response?.status === 404) {
+                logger.info('Product not configured in warehouse - allowing join', {
+                    sessionId: data.groupSessionId,
+                    productId: session.product_id
+                });
+            } else if (error.message?.includes('not available')) {
+                // Re-throw availability errors to user
+                throw error;
+            } else {
+                logger.warn('Warehouse inventory check failed - allowing join', {
+                    sessionId: data.groupSessionId,
+                    error: error.message
+                });
+            }
+        }
 
         // CRITICAL FIX #1: Validate unit price matches session group price
         if(Number(data.unitPrice) !== Number(session.group_price)) {
