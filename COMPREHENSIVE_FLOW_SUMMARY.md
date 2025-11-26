@@ -811,58 +811,98 @@ warehouse_inventory:
 - ❌ `grosir_warehouse_tolerance` → Use `warehouse_inventory` config
 - ❌ `grosir_variant_allocations` → Not needed
 
-### Algorithm (Simplified - in getInventoryStatus):
+### Algorithm (Bundle Overflow Check):
 
 ```typescript
-// Called by group-buying-service to check availability
+// Called by group-buying-service when user joins session
 
-STEP 1: Get warehouse inventory
-  inventory = warehouse_inventory.findUnique({
-    where: { product_id, variant_id }
-  })
+STEP 1: Call warehouse API to check bundle overflow
+  GET /api/warehouse/check-bundle-overflow?productId=X&variantId=M
 
-STEP 2: Calculate available stock
-  availableQuantity = inventory.quantity - inventory.reserved_quantity
+STEP 2: Warehouse checks if variant has stock
+  inventory = warehouse_inventory.find({ product_id, variant_id: M })
+  available = inventory.quantity - inventory.reserved_quantity
 
-STEP 3: Check stock status
-  if (availableQuantity <= 0)
-    status = 'out_of_stock'
-  else if (inventory.quantity <= inventory.reorder_threshold)
-    status = 'low_stock'
-  else
-    status = 'in_stock'
+  If available > 0:
+    Return: { isLocked: false, canOrder: true, reason: "Stock available" }
 
-STEP 4: Return inventory status
-  Return: {
-    quantity: inventory.quantity,
-    reservedQuantity: inventory.reserved_quantity,
-    availableQuantity: availableQuantity,
-    maxStockLevel: inventory.max_stock_level,
-    reorderThreshold: inventory.reorder_threshold,
-    status: status
-  }
+STEP 3: No stock - check if ordering bundle would overflow OTHER variants
+  Get bundle composition:
+    grosir_bundle_composition = [
+      { variant: S, units_in_bundle: 4 },
+      { variant: M, units_in_bundle: 4 },
+      { variant: L, units_in_bundle: 4 }
+    ]
 
-// Group-buying-service uses this to decide if user can join
-if (availableQuantity >= requestedQuantity) {
-  // Allow user to join session
-} else {
-  // Show "out of stock" or "insufficient stock"
-}
+  Get current inventory for ALL variants:
+    S: quantity=8, max_stock_level=8
+    M: quantity=0, max_stock_level=8
+    L: quantity=8, max_stock_level=8
+
+  Check each variant: Would (current + bundle) exceed max?
+    S: 8 + 4 = 12 > 8? YES → OVERFLOW
+    M: 0 + 4 = 4 > 8? NO
+    L: 8 + 4 = 12 > 8? YES → OVERFLOW
+
+  If ANY variant overflows:
+    Return: {
+      isLocked: true,
+      canOrder: false,
+      reason: "Ordering bundle would exceed max stock for: S, L"
+    }
+
+STEP 4: Group-buying-service response
+  If isLocked = true:
+    ❌ Reject user: "This variant is locked. Other variants need to be ordered first."
+  Else:
+    ✅ Allow user to join session
 ```
 
-### User Experience (Simplified):
+### User Experience Examples:
 
+**Example 1: Variant Locked (Bundle Overflow)**
 ```
-User A wants 40 M shirts:
-  Check inventory:
-    quantity: 50
-    reserved: 10
-    available: 40 ✓
+Bundle: 4S + 4M + 4L = 12 units
+Max Stock: 8S, 8M, 8L
+Current Stock: 8S, 0M, 8L
 
-  If available >= requested: Allow
-  Else: "Insufficient stock available"
+User wants 1M:
+  Check M stock: 0 (need to order bundle)
+  Simulate bundle order:
+    After: 12S, 4M, 12L
+  Check overflow:
+    12S > 8? YES ❌
+    12L > 8? YES ❌
 
-No complex tolerance or allocation calculations needed.
+Result: ❌ "M is locked. Other variants need to be ordered first."
+```
+
+**Example 2: Variant Unlocked (No Overflow)**
+```
+Bundle: 4S + 4M + 4L
+Max Stock: 8S, 8M, 8L
+Current Stock: 4S, 0M, 4L
+
+User wants 1M:
+  Check M stock: 0 (need to order bundle)
+  Simulate bundle order:
+    After: 8S, 4M, 8L
+  Check overflow:
+    8S > 8? NO ✓
+    8L > 8? NO ✓
+
+Result: ✅ "M can be ordered. Bundle will be ordered from factory."
+```
+
+**Example 3: Stock Available (No Bundle Needed)**
+```
+Current Stock: 6S, 5M, 7L
+
+User wants 2M:
+  Check M stock: 5 available ✓
+  No bundle needed
+
+Result: ✅ "M available from warehouse stock."
 ```
 
 ---

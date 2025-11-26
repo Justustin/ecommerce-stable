@@ -356,10 +356,10 @@ export class GroupBuyingService {
             throw new Error('Quantity must be at least 1')
         }
 
-        // Check warehouse inventory availability
+        // Check bundle overflow - prevent ordering if bundle would exceed max stock
         try {
-            const inventoryCheck = await axios.get(
-                `${WAREHOUSE_SERVICE_URL}/api/warehouse/inventory/status`,
+            const overflowCheck = await axios.get(
+                `${WAREHOUSE_SERVICE_URL}/api/warehouse/check-bundle-overflow`,
                 {
                     params: {
                         productId: session.product_id,
@@ -369,30 +369,22 @@ export class GroupBuyingService {
                 }
             );
 
-            const inventory = inventoryCheck.data.data;
+            const result = overflowCheck.data.data;
 
-            // Check if enough stock is available (current + what can be ordered)
-            const availableQuantity = inventory.availableQuantity || 0;
-            const maxStock = inventory.maxStockLevel || 0;
-
-            // If no stock and no room to order more, reject
-            if (availableQuantity === 0 && maxStock === 0) {
+            // If variant is locked (bundle would overflow other variants), reject
+            if (result.isLocked) {
                 throw new Error(
-                    `This product variant is currently not available. ` +
-                    `Please try again later or contact support.`
+                    `This variant is currently locked. ${result.reason}. ` +
+                    `Other variants need to be ordered first to make room for a new bundle.`
                 );
             }
 
-            // If stock is low, warn but don't block (warehouse can order from factory)
-            if (availableQuantity < data.quantity) {
-                logger.info('Low stock warning - will need factory order', {
-                    sessionId: data.groupSessionId,
-                    variantId: data.variantId,
-                    requested: data.quantity,
-                    available: availableQuantity,
-                    maxStock
-                });
-            }
+            logger.info('Bundle overflow check passed', {
+                sessionId: data.groupSessionId,
+                variantId: data.variantId,
+                canOrder: result.canOrder,
+                reason: result.reason
+            });
         } catch (error: any) {
             // If warehouse service is down or product not configured, allow join
             // Inventory will be checked again at session expiry
@@ -401,11 +393,11 @@ export class GroupBuyingService {
                     sessionId: data.groupSessionId,
                     productId: session.product_id
                 });
-            } else if (error.message?.includes('not available')) {
-                // Re-throw availability errors to user
+            } else if (error.message?.includes('locked')) {
+                // Re-throw lock errors to user
                 throw error;
             } else {
-                logger.warn('Warehouse inventory check failed - allowing join', {
+                logger.warn('Bundle overflow check failed - allowing join', {
                     sessionId: data.groupSessionId,
                     error: error.message
                 });

@@ -121,4 +121,42 @@ router.post('/fulfill-bundle-demand', [
  */
 router.get('/inventory/status', controller.getInventoryStatus);
 
+/**
+ * @swagger
+ * /api/warehouse/check-bundle-overflow:
+ *   get:
+ *     summary: Check if ordering a bundle would overflow other variants
+ *     description: Used by group-buying-service to prevent ordering variants when bundle would exceed max_stock_level
+ *     tags: [Warehouse]
+ *     parameters:
+ *       - in: query
+ *         name: productId
+ *         required: true
+ *         schema: { type: 'string' }
+ *         description: Product ID
+ *       - in: query
+ *         name: variantId
+ *         schema: { type: 'string' }
+ *         description: Variant ID (null for base product)
+ *     responses:
+ *       200:
+ *         description: Bundle overflow check result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: 'boolean' }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     isLocked: { type: 'boolean' }
+ *                     reason: { type: 'string' }
+ *                     canOrder: { type: 'boolean' }
+ *                     overflowVariants: { type: 'array', items: { type: 'string' } }
+ *       400: { description: 'Bad request - productId is required' }
+ *       500: { description: 'Internal server error' }
+ */
+router.get('/check-bundle-overflow', controller.checkBundleOverflow);
+
 export default router;

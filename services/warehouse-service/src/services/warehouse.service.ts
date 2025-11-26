@@ -253,6 +253,99 @@ export class WarehouseService {
         };
     }
 
+    /**
+     * Check if ordering a bundle for requested variant would overflow other variants
+     *
+     * Logic: If warehouse needs to order a bundle from factory, check if adding
+     * that bundle would exceed max_stock_level for ANY variant in the bundle.
+     *
+     * Example:
+     *   Bundle: 4S + 4M + 4L
+     *   Max: 8S, 8M, 8L
+     *   Current: 8S, 0M, 8L
+     *   User wants M → Would order bundle → After: 12S, 4M, 12L
+     *   Check: 12S > 8? YES → M is LOCKED
+     */
+    async checkBundleOverflow(productId: string, variantId: string | null) {
+        // 1. Get bundle composition for the product
+        const bundleCompositions = await prisma.grosir_bundle_composition.findMany({
+            where: { product_id: productId }
+        });
+
+        if (bundleCompositions.length === 0) {
+            return {
+                isLocked: false,
+                reason: 'Product not configured for bundle checking',
+                canOrder: true
+            };
+        }
+
+        // 2. Get current inventory for all variants
+        const inventories = await prisma.warehouse_inventory.findMany({
+            where: { product_id: productId }
+        });
+
+        // 3. Check if requested variant has stock (if yes, no bundle needed)
+        const requestedInventory = inventories.find(
+            inv => (inv.variant_id || null) === (variantId || null)
+        );
+
+        if (requestedInventory) {
+            const available = requestedInventory.quantity - (requestedInventory.reserved_quantity || 0);
+            if (available > 0) {
+                // Has stock, no bundle needed, not locked
+                return {
+                    isLocked: false,
+                    reason: 'Stock available - no bundle order needed',
+                    canOrder: true,
+                    availableQuantity: available
+                };
+            }
+        }
+
+        // 4. No stock - check if ordering a bundle would overflow any variant
+        const overflowVariants: string[] = [];
+
+        for (const bundleComp of bundleCompositions) {
+            const inventory = inventories.find(
+                inv => (inv.variant_id || null) === (bundleComp.variant_id || null)
+            );
+
+            if (!inventory) continue;
+
+            const currentQuantity = inventory.quantity || 0;
+            const maxStock = inventory.max_stock_level || 0;
+            const bundleUnits = bundleComp.units_in_bundle;
+
+            // After ordering bundle, would this variant exceed max?
+            const afterBundle = currentQuantity + bundleUnits;
+
+            if (afterBundle > maxStock && maxStock > 0) {
+                const variantName = bundleComp.variant_id || 'base';
+                overflowVariants.push(
+                    `${variantName} (${currentQuantity} + ${bundleUnits} = ${afterBundle} > ${maxStock})`
+                );
+            }
+        }
+
+        // 5. If any variant would overflow, lock the requested variant
+        if (overflowVariants.length > 0) {
+            return {
+                isLocked: true,
+                reason: `Ordering a bundle would exceed max stock for: ${overflowVariants.join(', ')}`,
+                canOrder: false,
+                overflowVariants
+            };
+        }
+
+        // 6. No overflow - can order
+        return {
+            isLocked: false,
+            reason: 'Bundle can be ordered without overflow',
+            canOrder: true
+        };
+    }
+
     private async _calculateBulkShipping(factory: any, product: any, quantity: number): Promise<number> {
         try {
             const payload = {

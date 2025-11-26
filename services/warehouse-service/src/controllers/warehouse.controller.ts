@@ -56,4 +56,26 @@ export class WarehouseController {
             res.status(500).json({ success: false, error: error.message });
         }
     };
+
+    checkBundleOverflow = async (req: Request, res: Response) => {
+        try {
+            const { productId, variantId } = req.query;
+
+            if (!productId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'productId is required'
+                });
+            }
+
+            const result = await this.service.checkBundleOverflow(
+                productId as string,
+                (variantId as string) || null
+            );
+
+            res.status(200).json({ success: true, data: result });
+        } catch (error: any) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    };
 }
