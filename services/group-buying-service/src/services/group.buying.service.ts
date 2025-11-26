@@ -356,48 +356,8 @@ export class GroupBuyingService {
             throw new Error('Quantity must be at least 1')
         }
 
-        // GROSIR VARIANT ALLOCATION CHECK: Enforce 2x allocation limit
-        if (data.variantId) {
-            try {
-                const variantAvail = await this.getVariantAvailability(
-                    data.groupSessionId,
-                    data.variantId
-                );
-
-                if (variantAvail.isLocked) {
-                    throw new Error(
-                        `Variant is currently locked. ` +
-                        `Max ${variantAvail.maxAllowed} allowed, ` +
-                        `${variantAvail.totalOrdered} already ordered. ` +
-                        `Other variants need to catch up before you can order more of this variant.`
-                    );
-                }
-
-                if (data.quantity > variantAvail.available) {
-                    throw new Error(
-                        `Only ${variantAvail.available} units available for this variant. ` +
-                        `Already ordered: ${variantAvail.totalOrdered}/${variantAvail.maxAllowed}`
-                    );
-                }
-
-                logger.info('Variant availability check passed', {
-                    sessionId: data.groupSessionId,
-                    variantId: data.variantId,
-                    requested: data.quantity,
-                    available: variantAvail.available,
-                    totalOrdered: variantAvail.totalOrdered
-                });
-            } catch (error: any) {
-                // If allocation doesn't exist, that's okay - product might not use grosir system
-                if (!error.message.includes('not configured')) {
-                    throw error;
-                }
-                logger.info('Product does not use grosir allocation system', {
-                    sessionId: data.groupSessionId,
-                    productId: session.product_id
-                });
-            }
-        }
+        // NOTE: Simplified inventory model - variant allocation checks removed
+        // Warehouse inventory is validated when the session expires, not during join
 
         // CRITICAL FIX #1: Validate unit price matches session group price
         if(Number(data.unitPrice) !== Number(session.group_price)) {
