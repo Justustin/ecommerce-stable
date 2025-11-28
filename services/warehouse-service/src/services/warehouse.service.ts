@@ -172,7 +172,8 @@ export class WarehouseService {
         console.log(`Insufficient stock. Shortage: ${shortage}, ordering ${bundlesToOrder} bundles (${unitsToOrder} units)`);
 
         // TASK 2: Check for overflow BEFORE creating purchase order
-        const overflowCheck = await this.checkBundleOverflow(productId, variantId);
+        // CRITICAL: Pass bundlesToOrder to check actual quantity being ordered
+        const overflowCheck = await this.checkBundleOverflow(productId, variantId, bundlesToOrder);
 
         if (overflowCheck.isLocked) {
             console.error(`❌ Cannot order bundles: ${overflowCheck.reason}`);
@@ -267,19 +268,30 @@ export class WarehouseService {
     }
 
     /**
-     * Check if ordering a bundle for requested variant would overflow other variants
+     * Check if ordering bundles for requested variant would overflow other variants
      *
-     * Logic: If warehouse needs to order a bundle from factory, check if adding
-     * that bundle would exceed max_stock_level for ANY variant in the bundle.
+     * Logic: If warehouse needs to order bundles from factory, check if adding
+     * those bundles would exceed max_stock_level for ANY variant in the bundle.
+     *
+     * @param productId - Product ID
+     * @param variantId - Variant ID being requested
+     * @param bundleCount - Number of bundles to order (default: 1)
      *
      * Example:
      *   Bundle: 4S + 4M + 4L
      *   Max: 8S, 8M, 8L
      *   Current: 8S, 0M, 8L
-     *   User wants M → Would order bundle → After: 12S, 4M, 12L
+     *   User wants M → Would order 1 bundle → After: 12S, 4M, 12L
      *   Check: 12S > 8? YES → M is LOCKED
+     *
+     * Example with 0 stock:
+     *   Bundle: 30S + 30M + 30L
+     *   Max: 50S, 50M, 50L
+     *   Current: 0S, 0M, 0L
+     *   User wants 50M → Would order 2 bundles → After: 60S, 60M, 60L
+     *   Check: 60S > 50? YES → M is LOCKED
      */
-    async checkBundleOverflow(productId: string, variantId: string | null) {
+    async checkBundleOverflow(productId: string, variantId: string | null, bundleCount: number = 1) {
         // 1. Get bundle composition for the product
         const bundleCompositions = await prisma.grosir_bundle_composition.findMany({
             where: { product_id: productId }
@@ -316,7 +328,7 @@ export class WarehouseService {
             }
         }
 
-        // 4. No stock - check if ordering a bundle would overflow any variant
+        // 4. No stock - check if ordering bundles would overflow any variant
         const overflowVariants: string[] = [];
 
         for (const bundleComp of bundleCompositions) {
@@ -330,13 +342,15 @@ export class WarehouseService {
             const maxStock = inventory.max_stock_level || 0;
             const bundleUnits = bundleComp.units_in_bundle;
 
-            // After ordering bundle, would this variant exceed max?
-            const afterBundle = currentQuantity + bundleUnits;
+            // After ordering bundles, would this variant exceed max?
+            // CRITICAL: Multiply by bundleCount to check actual quantity
+            const unitsToAdd = bundleUnits * bundleCount;
+            const afterBundle = currentQuantity + unitsToAdd;
 
             if (afterBundle > maxStock && maxStock > 0) {
                 const variantName = bundleComp.variant_id || 'base';
                 overflowVariants.push(
-                    `${variantName} (${currentQuantity} + ${bundleUnits} = ${afterBundle} > ${maxStock})`
+                    `${variantName} (${currentQuantity} + ${unitsToAdd} [${bundleCount} bundles × ${bundleUnits}] = ${afterBundle} > ${maxStock})`
                 );
             }
         }
@@ -345,7 +359,7 @@ export class WarehouseService {
         if (overflowVariants.length > 0) {
             return {
                 isLocked: true,
-                reason: `Ordering a bundle would exceed max stock for: ${overflowVariants.join(', ')}`,
+                reason: `Ordering ${bundleCount} bundle(s) would exceed max stock for: ${overflowVariants.join(', ')}`,
                 canOrder: false,
                 overflowVariants
             };
@@ -354,7 +368,7 @@ export class WarehouseService {
         // 6. No overflow - can order
         return {
             isLocked: false,
-            reason: 'Bundle can be ordered without overflow',
+            reason: `${bundleCount} bundle(s) can be ordered without overflow`,
             canOrder: true
         };
     }
