@@ -482,6 +482,56 @@ export class WarehouseService {
         }
     }
 
+        async reserveInventory(productId: string, variantId: string | null, quantity: number) {
+        console.log(`Reserve inventory request: product ${productId}, variant ${variantId}, quantity ${quantity}`);
+
+        // Check current inventory
+        const inventory = await this.repository.findInventory(productId, variantId);
+
+        if (!inventory) {
+            return {
+                message: 'Inventory not configured for this product/variant',
+                reserved: false
+            };
+        }
+
+        const currentStock = inventory.quantity || 0;
+        const reservedStock = inventory.reserved_quantity || 0;
+        const availableStock = currentStock - reservedStock;
+
+        console.log(`Current inventory: ${currentStock} total, ${reservedStock} reserved, ${availableStock} available`);
+
+        // If sufficient stock, reserve it
+        if (availableStock >= quantity) {
+            await prisma.warehouse_inventory.update({
+                where: { id: inventory.id },
+                data: {
+                    reserved_quantity: { increment: quantity }
+                }
+            });
+
+            console.log(`✓ Reserved ${quantity} units (${availableStock - quantity} remaining)`);
+
+            return {
+                message: `Successfully reserved ${quantity} units`,
+                reserved: true,
+                quantity,
+                availableAfter: availableStock - quantity
+            };
+        }
+
+        // Insufficient stock - don't create purchase order here
+        // Will be handled at session expiration
+        console.log(`⚠ Insufficient stock to reserve (need ${quantity}, have ${availableStock})`);
+
+        return {
+            message: `Insufficient stock to reserve (need ${quantity}, have ${availableStock})`,
+            reserved: false,
+            shortage: quantity - availableStock
+        };
+    }
+
+
     /**
      * NEW: Send WhatsApp message to factory about purchase order
      */

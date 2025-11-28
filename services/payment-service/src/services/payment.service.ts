@@ -9,6 +9,7 @@ import axios from 'axios';
 
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
+const WAREHOUSE_SERVICE_URL = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3011';
 
 export class PaymentService {
   private repository: PaymentRepository;
@@ -60,6 +61,40 @@ export class PaymentService {
     } catch (error: any) {
       console.error(`Failed to update order ${orderId} status:`, error.message);
       throw error;
+    }
+  }
+
+  // Helper method to reserve inventory from warehouse
+  private async reserveWarehouseInventory(
+    productId: string,
+    variantId: string | null,
+    quantity: number
+  ): Promise<{ success: boolean; message: string; reserved?: number }> {
+    try {
+      const response = await axios.post(
+        `${WAREHOUSE_SERVICE_URL}/api/warehouse/reserve-inventory`,
+        {
+          productId,
+          variantId,
+          quantity
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000
+        }
+      );
+      return {
+        success: true,
+        message: response.data.message || 'Inventory reserved successfully',
+        reserved: quantity
+      };
+    } catch (error: any) {
+      console.error(`Failed to reserve inventory:`, error.message);
+      // Return failure but don't throw - we'll handle at session expiration
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message
+      };
     }
   }
 
@@ -165,9 +200,50 @@ async handlePaidCallback(callbackData: any) {
     }
 
     await this.sendPaymentNotification(payment.user_id, payment.order_id, 'success');
-  } else {
-    // Escrow payment - notify user
+  }  else if (isEscrowPayment && payment.group_session_id) {
+    // Escrow payment for group buying - reserve inventory immediately
     console.log(`Escrow payment ${payment.id} marked as paid for group session ${payment.group_session_id}`);
+
+    // Get participant details to reserve inventory
+    try {
+      const participant = await prisma.group_participants.findUnique({
+        where: { id: payment.participant_id! },
+        include: {
+          group_buying_sessions: {
+            select: {
+              product_id: true
+            }
+          }
+        }
+      });
+
+      if (participant) {
+        const productId = participant.group_buying_sessions.product_id;
+        const variantId = participant.variant_id;
+        const quantity = participant.quantity;
+
+        console.log(`Attempting to reserve inventory for paid participant: ${quantity} units of product ${productId}, variant ${variantId || 'base'}`);
+
+        // Reserve inventory from warehouse (if available)
+        const reserveResult = await this.reserveWarehouseInventory(
+          productId,
+          variantId,
+          quantity
+        );
+
+        if (reserveResult.success) {
+          console.log(`✓ Successfully reserved ${reserveResult.reserved} units for participant ${participant.id}`);
+        } else {
+          console.log(`⚠ Could not reserve inventory immediately: ${reserveResult.message}. Will be handled at session expiration.`);
+        }
+      } else {
+        console.warn(`Participant ${payment.participant_id} not found for payment ${payment.id}`);
+      }
+    } catch (error: any) {
+      // Don't fail the payment if inventory reservation fails
+      // It will be handled at session expiration
+      console.error(`Failed to reserve inventory for payment ${payment.id}:`, error.message);
+    }
   }
 
   return {

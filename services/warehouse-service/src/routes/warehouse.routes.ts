@@ -202,4 +202,46 @@ router.get('/check-bundle-overflow', controller.checkBundleOverflow);
  */
 router.get('/check-all-variants', controller.checkAllVariantsOverflow);
 
+
+
+/**
+ * @swagger
+ * /api/warehouse/reserve-inventory:
+ *   post:
+ *     summary: Reserve inventory for a paid group buying participant
+ *     description: Called by payment service when a group buying payment is confirmed. Only reserves if stock is available.
+ *     tags: [Warehouse]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [productId, quantity]
+ *             properties:
+ *               productId: { type: 'string', format: 'uuid' }
+ *               variantId: { type: 'string', format: 'uuid', nullable: true }
+ *               quantity: { type: 'integer', minimum: 1 }
+ *     responses:
+ *       200:
+ *         description: Reservation result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: 'boolean' }
+ *                 message: { type: 'string' }
+ *                 reserved: { type: 'boolean' }
+ *                 quantity: { type: 'integer' }
+ *                 availableAfter: { type: 'integer' }
+ *       400: { description: 'Bad request - productId and quantity are required' }
+ *       500: { description: 'Internal server error' }
+ */
+router.post('/reserve-inventory', [
+    body('productId').isUUID(),
+    body('variantId').optional({ nullable: true }).isUUID(),
+    body('quantity').isInt({ gt: 0 }),
+], controller.reserveInventory);
+
 export default router;

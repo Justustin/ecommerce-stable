@@ -99,4 +99,27 @@ export class WarehouseController {
             res.status(500).json({ success: false, error: error.message });
         }
     };
+
+    reserveInventory = async (req: Request, res: Response) => {
+        try {
+            const { productId, variantId, quantity } = req.body;
+
+            if (!productId || !quantity) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'productId and quantity are required'
+                });
+            }
+
+            const result = await this.service.reserveInventory(
+                productId,
+                variantId || null,
+                quantity
+            );
+
+            res.status(200).json({ success: true, ...result });
+        } catch (error: any) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    };
 }
