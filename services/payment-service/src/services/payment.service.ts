@@ -209,7 +209,7 @@ async handlePaidCallback(callbackData: any) {
       const participant = await prisma.group_participants.findUnique({
         where: { id: payment.participant_id! },
         include: {
-          group_sessions: {
+          group_buying_sessions: {
             select: {
               product_id: true
             }
@@ -218,7 +218,7 @@ async handlePaidCallback(callbackData: any) {
       });
 
       if (participant) {
-        const productId = participant.group_sessions.product_id;
+        const productId = participant.group_buying_sessions.product_id;
         const variantId = participant.variant_id;
         const quantity = participant.quantity;
 
