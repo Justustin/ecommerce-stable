@@ -244,4 +244,43 @@ router.post('/reserve-inventory', [
     body('quantity').isInt({ gt: 0 }),
 ], controller.reserveInventory);
 
+/**
+ * @swagger
+ * /api/warehouse/check-and-restock:
+ *   post:
+ *     summary: Manually trigger restock check and order
+ *     description: Checks if stock is below reorder_threshold and creates purchase order if needed
+ *     tags: [Warehouse]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [productId]
+ *             properties:
+ *               productId: { type: 'string', format: 'uuid' }
+ *               variantId: { type: 'string', format: 'uuid', nullable: true }
+ *     responses:
+ *       200:
+ *         description: Restock check result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: 'boolean' }
+ *                 message: { type: 'string' }
+ *                 restockNeeded: { type: 'boolean' }
+ *                 currentAvailable: { type: 'integer' }
+ *                 reorderThreshold: { type: 'integer' }
+ *                 unitsNeeded: { type: 'integer' }
+ *       400: { description: 'Bad request - productId is required' }
+ *       500: { description: 'Internal server error' }
+ */
+router.post('/check-and-restock', [
+    body('productId').isUUID(),
+    body('variantId').optional({ nullable: true }).isUUID(),
+], controller.checkAndRestock);
+
 export default router;

@@ -171,6 +171,19 @@ export class WarehouseService {
 
         console.log(`Insufficient stock. Shortage: ${shortage}, ordering ${bundlesToOrder} bundles (${unitsToOrder} units)`);
 
+        // TASK 2: Check for overflow BEFORE creating purchase order
+        const overflowCheck = await this.checkBundleOverflow(productId, variantId);
+
+        if (overflowCheck.isLocked) {
+            console.error(`❌ Cannot order bundles: ${overflowCheck.reason}`);
+            throw new Error(
+                `Cannot fulfill demand - ordering bundles would cause overflow. ${overflowCheck.reason}. ` +
+                `This variant is currently LOCKED due to inventory constraints.`
+            );
+        }
+
+        console.log(`✓ Overflow check passed: ${overflowCheck.reason}`);
+
         // 5. Get product and factory details
         const product = await prisma.products.findUnique({
             where: { id: productId },
@@ -512,11 +525,24 @@ export class WarehouseService {
 
             console.log(`✓ Reserved ${quantity} units (${availableStock - quantity} remaining)`);
 
+            const newAvailable = availableStock - quantity;
+
+            // TASK 1: Check if proactive reordering is needed
+            if (inventory.reorder_threshold && newAvailable < inventory.reorder_threshold) {
+                console.log(`🔔 Stock dropped below reorder threshold (${newAvailable} < ${inventory.reorder_threshold})`);
+
+                // Trigger proactive restock (non-blocking)
+                this.triggerRestockOrder(productId, variantId, inventory).catch((error) => {
+                    console.error(`Failed to trigger restock order:`, error.message);
+                    // Don't throw - reservation was successful
+                });
+            }
+
             return {
                 message: `Successfully reserved ${quantity} units`,
                 reserved: true,
                 quantity,
-                availableAfter: availableStock - quantity
+                availableAfter: newAvailable
             };
         }
 
@@ -531,6 +557,154 @@ export class WarehouseService {
         };
     }
 
+
+    /**
+     * TASK 4: Manual/automated restock endpoint
+     * Checks if stock is below reorder_threshold and creates PO if needed
+     *
+     * @param productId - Product ID
+     * @param variantId - Variant ID (or null for base product)
+     */
+    async checkAndRestock(productId: string, variantId: string | null) {
+        console.log(`📦 Manual restock check for product ${productId}, variant ${variantId}`);
+
+        try {
+            // 1. Get current inventory
+            const inventory = await this.repository.findInventory(productId, variantId);
+
+            if (!inventory) {
+                return {
+                    success: false,
+                    message: 'Inventory not configured for this product/variant',
+                    restockNeeded: false
+                };
+            }
+
+            const currentAvailable = (inventory.quantity || 0) - (inventory.reserved_quantity || 0);
+            const reorderThreshold = inventory.reorder_threshold || 0;
+
+            console.log(`Current available: ${currentAvailable}, reorder threshold: ${reorderThreshold}`);
+
+            // 2. Check if restock is needed
+            if (!reorderThreshold || currentAvailable >= reorderThreshold) {
+                return {
+                    success: true,
+                    message: `No restock needed (current: ${currentAvailable}, threshold: ${reorderThreshold})`,
+                    restockNeeded: false,
+                    currentAvailable,
+                    reorderThreshold
+                };
+            }
+
+            // 3. Trigger restock
+            await this.triggerRestockOrder(productId, variantId, inventory);
+
+            return {
+                success: true,
+                message: `Restock order created successfully`,
+                restockNeeded: true,
+                currentAvailable,
+                reorderThreshold,
+                unitsNeeded: reorderThreshold - currentAvailable
+            };
+        } catch (error: any) {
+            console.error(`Manual restock failed:`, error.message);
+            return {
+                success: false,
+                message: `Restock failed: ${error.message}`,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * TASK 1: Proactively trigger restock order when stock drops below reorder_threshold
+     *
+     * @param productId - Product ID
+     * @param variantId - Variant ID (or null for base product)
+     * @param inventory - Current inventory record with reorder_threshold
+     */
+    private async triggerRestockOrder(
+        productId: string,
+        variantId: string | null,
+        inventory: any
+    ): Promise<void> {
+        console.log(`📦 Triggering proactive restock order for product ${productId}, variant ${variantId}`);
+
+        try {
+            // 1. Calculate how many units to restock (to reach reorder_threshold)
+            const currentAvailable = (inventory.quantity || 0) - (inventory.reserved_quantity || 0);
+            const reorderThreshold = inventory.reorder_threshold || 0;
+            const unitsNeeded = reorderThreshold - currentAvailable;
+
+            if (unitsNeeded <= 0) {
+                console.log(`No restock needed (current: ${currentAvailable}, threshold: ${reorderThreshold})`);
+                return;
+            }
+
+            console.log(`Need ${unitsNeeded} units to reach reorder threshold of ${reorderThreshold}`);
+
+            // 2. Get bundle composition to calculate bundles needed
+            const bundleComposition = await prisma.grosir_bundle_composition.findUnique({
+                where: {
+                    product_id_variant_id: {
+                        product_id: productId,
+                        variant_id: variantId || "null"
+                    }
+                }
+            });
+
+            if (!bundleComposition) {
+                console.warn(`No bundle composition found for product ${productId}, variant ${variantId}. Cannot create restock order.`);
+                return;
+            }
+
+            const unitsPerBundle = bundleComposition.units_in_bundle;
+            const bundlesToOrder = Math.ceil(unitsNeeded / unitsPerBundle);
+            const unitsToOrder = bundlesToOrder * unitsPerBundle;
+
+            console.log(`Ordering ${bundlesToOrder} bundles (${unitsToOrder} units) to restock`);
+
+            // 3. Get product and factory details
+            const product = await prisma.products.findUnique({
+                where: { id: productId },
+                include: { factories: true }
+            });
+
+            if (!product || !product.factories) {
+                throw new Error(`Product or factory not found for productId: ${productId}`);
+            }
+
+            const factory = product.factories;
+
+            // 4. Calculate shipping cost for the PO
+            const shippingCost = await this._calculateBulkShipping(factory, product, unitsToOrder);
+
+            // 5. Create purchase order
+            const unitCost = Number(product.cost_price || product.base_price);
+            const totalCost = (unitCost * unitsToOrder) + shippingCost;
+
+            const purchaseOrder = await this.repository.createPurchaseOrder({
+                factoryId: factory.id,
+                productId,
+                variantId: variantId || undefined,
+                quantity: unitsToOrder,
+                unitCost,
+                shippingCost,
+                totalCost
+            });
+
+            console.log(`✓ Created proactive PO ${purchaseOrder.po_number} for ${bundlesToOrder} bundles (${unitsToOrder} units)`);
+
+            // 6. Send WhatsApp notification to factory
+            await this._sendWhatsAppToFactory(factory, product, purchaseOrder, unitsToOrder, bundlesToOrder);
+
+            console.log(`✓ Proactive restock order completed successfully`);
+        } catch (error: any) {
+            console.error(`Error in triggerRestockOrder:`, error.message);
+            throw error; // Re-throw to be caught by caller
+        }
+    }
 
     /**
      * NEW: Send WhatsApp message to factory about purchase order

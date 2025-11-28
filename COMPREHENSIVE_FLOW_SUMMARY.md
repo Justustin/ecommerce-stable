@@ -1039,6 +1039,224 @@ SESSION EXPIRES:
 
 ---
 
+## 6.5. PROACTIVE WAREHOUSE INVENTORY MANAGEMENT
+
+### Overview
+
+The warehouse now implements **proactive inventory management** to prevent stockouts during active sessions. The system monitors stock levels and automatically reorders from the factory when inventory drops below configured thresholds.
+
+### Key Features
+
+1. **Automatic Reordering**: When stock drops below `reorder_threshold`, system automatically creates purchase orders
+2. **Overflow Prevention**: Prevents ordering bundles that would exceed `max_stock_level` for any variant
+3. **Non-Blocking**: Restock operations don't fail payment/reservation processes
+4. **Manual Trigger**: Admins can manually trigger restock checks via API
+
+### Configuration (warehouse_inventory table)
+
+```sql
+warehouse_inventory:
+  - quantity: Total units in warehouse
+  - reserved_quantity: Units reserved for paid orders
+  - available_quantity: quantity - reserved_quantity (computed)
+  - reorder_threshold: Trigger point for automatic reordering (e.g., 40 units)
+  - max_stock_level: Maximum allowed stock (e.g., 100 units)
+  - min_stock_level: Unused in current implementation
+```
+
+### Flow 1: Proactive Reordering During Payment
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ TRIGGER: User Payment Confirmed                                │
+└─────────────────────────────────────────────────────────────────┘
+
+User pays for group buying session
+       ↓
+Payment Service: handlePaidCallback()
+  1. Mark payment as paid
+  2. Reserve inventory from warehouse
+       ↓
+Warehouse Service: reserveInventory(productId, variantId, quantity)
+  1. Check current inventory
+     - quantity: 50 units
+     - reserved: 0 units
+     - available: 50 units
+
+  2. Reserve requested quantity (15 units)
+     - UPDATE warehouse_inventory
+       SET reserved_quantity = 15
+
+  3. Calculate new available: 50 - 15 = 35 units
+
+  4. Check reorder_threshold (40 units)
+     IF (35 < 40) THEN trigger restock ✓
+       ↓
+
+Warehouse Service: triggerRestockOrder()
+  1. Calculate units needed to reach threshold
+     - Current available: 35
+     - Reorder threshold: 40
+     - Units needed: 40 - 35 = 5 units
+
+  2. Get bundle composition
+     - Query grosir_bundle_composition
+     - Units per bundle: 4
+
+  3. Calculate bundles to order
+     - Bundles needed: ceil(5/4) = 2 bundles
+     - Units to order: 2 × 4 = 8 units
+
+  4. Create Purchase Order
+     - PO-20251128-XXXXX
+     - Quantity: 8 units (2 bundles)
+     - Status: pending
+
+  5. Send WhatsApp to Factory
+     - Notify about new PO
+     - Include bundle details
+
+  6. Log restock action
+     - "📦 Triggered proactive restock: 2 bundles (8 units)"
+       ↓
+
+Response to Payment Service:
+  {
+    reserved: true,
+    quantity: 15,
+    availableAfter: 35,
+    restockTriggered: true  // Informational only
+  }
+```
+
+**Important**: Restock operations are **non-blocking**. If restock fails, the payment/reservation still succeeds.
+
+### Flow 2: Overflow Prevention During Fulfillment
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ TRIGGER: Session Expires (fulfillBundleDemand)                  │
+└─────────────────────────────────────────────────────────────────┘
+
+Group Buying Service: fulfillBundleDemand()
+  Request:
+    - Product: T-Shirt (S, M, L variants)
+    - Variant needed: M (30 units)
+       ↓
+Warehouse Service: fulfillBundleDemand(productId, variantId=M, quantity=30)
+
+STEP 1: Get Bundle Composition
+  - Bundle contains: 20S + 20M + 20L
+
+STEP 2: Check Current Inventory
+  - S: quantity=45, max=50, available=45
+  - M: quantity=10, max=50, available=10
+  - L: quantity=45, max=50, available=45
+
+STEP 3: Calculate Bundle Order
+  - M shortage: 30 - 10 = 20 units
+  - Bundles needed: ceil(20/20) = 1 bundle
+  - Bundle contains: 20S + 20M + 20L
+
+STEP 4: OVERFLOW CHECK (NEW)
+  Check if ordering 1 bundle would overflow:
+    - S after bundle: 45 + 20 = 65 > 50? ❌ YES - OVERFLOW!
+    - M after bundle: 10 + 20 = 30 < 50? ✓
+    - L after bundle: 45 + 20 = 65 > 50? ❌ YES - OVERFLOW!
+
+  Result: ❌ LOCKED - Cannot order M
+       ↓
+
+Warehouse Service Response:
+  throw Error(
+    "Cannot fulfill demand - ordering bundles would cause overflow. " +
+    "S (45 + 20 = 65 > 50), L (45 + 20 = 65 > 50). " +
+    "This variant is currently LOCKED."
+  )
+```
+
+**Result**: Variant M is locked. Users cannot join the session for variant M until S or L stock is reduced.
+
+### Flow 3: Manual Restock Trigger
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ ADMIN MANUAL RESTOCK                                            │
+└─────────────────────────────────────────────────────────────────┘
+
+Admin → POST /api/warehouse/check-and-restock
+{
+  productId: "uuid",
+  variantId: "M-uuid"  // optional
+}
+       ↓
+Warehouse Service: checkAndRestock()
+  1. Get current inventory
+     - available: 35 units
+     - reorder_threshold: 40 units
+
+  2. Check if restock needed
+     - IF (35 < 40) → Yes, trigger restock
+
+  3. Call triggerRestockOrder()
+     - Create PO for bundles
+     - Send WhatsApp to factory
+       ↓
+Response:
+{
+  success: true,
+  message: "Restock order created successfully",
+  restockNeeded: true,
+  currentAvailable: 35,
+  reorderThreshold: 40,
+  unitsNeeded: 5
+}
+```
+
+### Implementation Summary
+
+**Modified Files:**
+
+1. **warehouse.service.ts**
+   - `reserveInventory()` - Added reorder_threshold check (line 518-526)
+   - `triggerRestockOrder()` - New private method for proactive ordering (line 627-702)
+   - `fulfillBundleDemand()` - Added overflow check before PO creation (line 175-185)
+   - `checkAndRestock()` - New public method for manual restock (line 568-618)
+
+2. **warehouse.controller.ts**
+   - `checkAndRestock()` - New endpoint controller (line 126-146)
+
+3. **warehouse.routes.ts**
+   - POST `/check-and-restock` - New manual restock endpoint (line 247-284)
+
+**Key Benefits:**
+
+- ✅ Prevents stockouts during active sessions
+- ✅ Automatic reordering without manual intervention
+- ✅ Prevents inventory overflow (respects max_stock_level)
+- ✅ Non-blocking design (doesn't fail payments)
+- ✅ Full logging for monitoring
+- ✅ Manual override capability for admins
+
+**Testing Scenarios:**
+
+1. **Scenario 1**: Stock drops below threshold during payment
+   - Given: 50 units, threshold=40
+   - When: User pays for 15 units
+   - Then: Available=35, triggers restock for 2 bundles
+
+2. **Scenario 2**: Overflow detected during fulfillment
+   - Given: S=45/50, M=10/50, L=45/50, bundle=20S+20M+20L
+   - When: Session expires needing 30M
+   - Then: Cannot order (S and L would overflow), M variant locked
+
+3. **Scenario 3**: Multiple concurrent payments
+   - Given: 80 units, threshold=40
+   - When: Payment A reserves 30 (→50), Payment B reserves 15 (→35)
+   - Then: Payment B triggers restock (non-duplicate)
+
+---
+
 ## 9. PRODUCT MANAGEMENT FLOW
 
 ### Overview

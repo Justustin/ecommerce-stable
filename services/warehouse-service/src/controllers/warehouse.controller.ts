@@ -122,4 +122,26 @@ export class WarehouseController {
             res.status(500).json({ success: false, error: error.message });
         }
     };
+
+    checkAndRestock = async (req: Request, res: Response) => {
+        try {
+            const { productId, variantId } = req.body;
+
+            if (!productId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'productId is required'
+                });
+            }
+
+            const result = await this.service.checkAndRestock(
+                productId,
+                variantId || null
+            );
+
+            res.status(200).json(result);
+        } catch (error: any) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    };
 }
