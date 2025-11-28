@@ -274,6 +274,8 @@ STEP 1: Validate Session
   - Unit price matches session.group_price
 
 STEP 2: Check Bundle Overflow (Simplified)
+
+  BACKEND CHECK (during joinSession):
   checkBundleOverflow(productId, variantId)
     ↓
   1. Get bundle composition from grosir_bundle_composition
@@ -302,6 +304,39 @@ STEP 2: Check Bundle Overflow (Simplified)
     ↓
   If locked: throw "Variant locked - other variants need to be ordered first"
   If unlocked: Allow user to join
+
+  FRONTEND CHECK (for UX - gray out locked variants):
+  checkAllVariantsOverflow(productId)
+    Endpoint: GET /api/warehouse/check-all-variants?productId=X
+    ↓
+  Returns lock status for ALL variants at once:
+    {
+      productId: "...",
+      variants: [
+        {
+          variantId: "S-id",
+          variantName: "Small",
+          isLocked: false,
+          canOrder: true,
+          reason: "Stock available (5 units)",
+          availableQuantity: 5
+        },
+        {
+          variantId: "M-id",
+          variantName: "Medium",
+          isLocked: true,
+          canOrder: false,
+          reason: "Would overflow: Small, Large",
+          availableQuantity: 0,
+          overflowVariants: ["Small", "Large"]
+        },
+        ...
+      ]
+    }
+    ↓
+  Frontend displays:
+    - White/enabled buttons for unlocked variants
+    - Gray/disabled buttons for locked variants with tooltip showing reason
 
 STEP 3: Calculate Shipping Costs
   Two-leg shipping model:

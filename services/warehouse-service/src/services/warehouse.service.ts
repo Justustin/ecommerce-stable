@@ -346,6 +346,112 @@ export class WarehouseService {
         };
     }
 
+    /**
+     * Check overflow status for ALL variants of a product (for frontend display)
+     * Returns lock status for each variant so UI can gray out locked options
+     *
+     * Frontend Usage:
+     *   GET /api/warehouse/check-all-variants?productId=X
+     *   → Display white buttons for unlocked variants
+     *   → Display gray (disabled) buttons for locked variants with tooltip
+     */
+    async checkAllVariantsOverflow(productId: string) {
+        // 1. Get bundle composition for the product
+        const bundleCompositions = await prisma.grosir_bundle_composition.findMany({
+            where: { product_id: productId },
+            include: {
+                product_variants: {
+                    select: {
+                        id: true,
+                        variant_name: true,
+                        sku: true
+                    }
+                }
+            }
+        });
+
+        if (bundleCompositions.length === 0) {
+            return {
+                productId,
+                variants: [],
+                message: 'Product not configured for bundle checking'
+            };
+        }
+
+        // 2. Get current inventory for all variants
+        const inventories = await prisma.warehouse_inventory.findMany({
+            where: { product_id: productId }
+        });
+
+        // 3. Check each variant
+        const variantStatuses = [];
+
+        for (const bundleComp of bundleCompositions) {
+            const variantId = bundleComp.variant_id;
+
+            // Check if this variant has stock
+            const inventory = inventories.find(
+                inv => (inv.variant_id || null) === (variantId || null)
+            );
+
+            const available = inventory
+                ? (inventory.quantity || 0) - (inventory.reserved_quantity || 0)
+                : 0;
+
+            // If has stock, not locked
+            if (available > 0) {
+                variantStatuses.push({
+                    variantId,
+                    variantName: bundleComp.product_variants?.variant_name || 'Base Product',
+                    isLocked: false,
+                    canOrder: true,
+                    reason: `Stock available (${available} units)`,
+                    availableQuantity: available
+                });
+                continue;
+            }
+
+            // No stock - check if ordering bundle would overflow other variants
+            const overflowVariants: string[] = [];
+
+            for (const otherBundleComp of bundleCompositions) {
+                const otherInventory = inventories.find(
+                    inv => (inv.variant_id || null) === (otherBundleComp.variant_id || null)
+                );
+
+                if (!otherInventory) continue;
+
+                const currentQuantity = otherInventory.quantity || 0;
+                const maxStock = otherInventory.max_stock_level || 0;
+                const bundleUnits = otherBundleComp.units_in_bundle;
+                const afterBundle = currentQuantity + bundleUnits;
+
+                if (afterBundle > maxStock && maxStock > 0) {
+                    const otherVariantName = otherBundleComp.product_variants?.variant_name || 'base';
+                    overflowVariants.push(otherVariantName);
+                }
+            }
+
+            // Add status for this variant
+            variantStatuses.push({
+                variantId,
+                variantName: bundleComp.product_variants?.variant_name || 'Base Product',
+                isLocked: overflowVariants.length > 0,
+                canOrder: overflowVariants.length === 0,
+                reason: overflowVariants.length > 0
+                    ? `Would overflow: ${overflowVariants.join(', ')}`
+                    : 'Can order (bundle has room)',
+                availableQuantity: 0,
+                overflowVariants: overflowVariants.length > 0 ? overflowVariants : undefined
+            });
+        }
+
+        return {
+            productId,
+            variants: variantStatuses
+        };
+    }
+
     private async _calculateBulkShipping(factory: any, product: any, quantity: number): Promise<number> {
         try {
             const payload = {

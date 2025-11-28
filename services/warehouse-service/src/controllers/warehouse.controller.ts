@@ -78,4 +78,25 @@ export class WarehouseController {
             res.status(500).json({ success: false, error: error.message });
         }
     };
+
+    checkAllVariantsOverflow = async (req: Request, res: Response) => {
+        try {
+            const { productId } = req.query;
+
+            if (!productId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'productId is required'
+                });
+            }
+
+            const result = await this.service.checkAllVariantsOverflow(
+                productId as string
+            );
+
+            res.status(200).json({ success: true, data: result });
+        } catch (error: any) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    };
 }
