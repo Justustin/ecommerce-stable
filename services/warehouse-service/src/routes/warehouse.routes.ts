@@ -121,4 +121,85 @@ router.post('/fulfill-bundle-demand', [
  */
 router.get('/inventory/status', controller.getInventoryStatus);
 
+/**
+ * @swagger
+ * /api/warehouse/check-bundle-overflow:
+ *   get:
+ *     summary: Check if ordering a bundle would overflow other variants
+ *     description: Used by group-buying-service to prevent ordering variants when bundle would exceed max_stock_level
+ *     tags: [Warehouse]
+ *     parameters:
+ *       - in: query
+ *         name: productId
+ *         required: true
+ *         schema: { type: 'string' }
+ *         description: Product ID
+ *       - in: query
+ *         name: variantId
+ *         schema: { type: 'string' }
+ *         description: Variant ID (null for base product)
+ *     responses:
+ *       200:
+ *         description: Bundle overflow check result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: 'boolean' }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     isLocked: { type: 'boolean' }
+ *                     reason: { type: 'string' }
+ *                     canOrder: { type: 'boolean' }
+ *                     overflowVariants: { type: 'array', items: { type: 'string' } }
+ *       400: { description: 'Bad request - productId is required' }
+ *       500: { description: 'Internal server error' }
+ */
+router.get('/check-bundle-overflow', controller.checkBundleOverflow);
+
+/**
+ * @swagger
+ * /api/warehouse/check-all-variants:
+ *   get:
+ *     summary: Check overflow status for all variants (for frontend display)
+ *     description: Returns lock status for ALL variants at once so frontend can gray out locked options
+ *     tags: [Warehouse]
+ *     parameters:
+ *       - in: query
+ *         name: productId
+ *         required: true
+ *         schema: { type: 'string' }
+ *         description: Product ID
+ *     responses:
+ *       200:
+ *         description: All variant statuses
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: 'boolean' }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     productId: { type: 'string' }
+ *                     variants:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           variantId: { type: 'string', nullable: true }
+ *                           variantName: { type: 'string' }
+ *                           isLocked: { type: 'boolean' }
+ *                           canOrder: { type: 'boolean' }
+ *                           reason: { type: 'string' }
+ *                           availableQuantity: { type: 'integer' }
+ *                           overflowVariants: { type: 'array', items: { type: 'string' } }
+ *       400: { description: 'Bad request - productId is required' }
+ *       500: { description: 'Internal server error' }
+ */
+router.get('/check-all-variants', controller.checkAllVariantsOverflow);
+
 export default router;

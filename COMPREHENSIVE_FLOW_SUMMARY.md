@@ -273,36 +273,35 @@ STEP 1: Validate Session
   - Session not expired
   - Unit price matches session.group_price
 
-STEP 2: Check Grosir Variant Availability
-  getVariantAvailability(sessionId, variantId)
+STEP 2: Check Bundle Overflow (Simplified)
+  checkBundleOverflow(productId, variantId)
     ↓
-  1. Get grosir_bundle_config for product
-     Example: 2S + 5M + 4L + 1XL per bundle
+  1. Get bundle composition from grosir_bundle_composition
+     Example: 4S + 4M + 4L per bundle (12 units total)
 
-  2. Get warehouse tolerance
-     Example: S max_excess=20, M max_excess=50
+  2. Get current warehouse inventory for ALL variants
+     Example: S=8, M=0, L=8 (with max_stock_level=8 each)
 
-  3. Count current orders for this variant (REAL participants only)
-     - Excludes bot participants
+  3. Check if requested variant has current stock
+     If stock available (M > 0): Return unlocked ✓
 
-  4. Calculate bundles needed per variant:
-     bundlesNeeded = ceil(ordered / units_per_bundle)
+  4. No stock - simulate ordering a bundle:
+     After bundle: S=8+4=12, M=0+4=4, L=8+4=12
 
-  5. Find max bundles across all variants
+  5. Check if ANY variant would exceed max_stock_level:
+     S: 12 > 8? YES → OVERFLOW
+     L: 12 > 8? YES → OVERFLOW
 
-  6. Check tolerance constraints:
-     If excess > max_tolerance: Lock variant
-
-  7. Return:
+  6. Return:
      {
-       available: number,
-       isLocked: boolean,
-       maxAllowed: number,
-       constrainingVariant: string
+       isLocked: true/false,
+       canOrder: true/false,
+       reason: "Ordering bundle would exceed max stock for: S, L",
+       overflowVariants: ["S (8+4=12>8)", "L (8+4=12>8)"]
      }
     ↓
-  If locked: throw "Variant locked - other sizes need to catch up"
-  If quantity > available: throw "Only X units available"
+  If locked: throw "Variant locked - other variants need to be ordered first"
+  If unlocked: Allow user to join
 
 STEP 3: Calculate Shipping Costs
   Two-leg shipping model:
@@ -471,9 +470,8 @@ STEP 4: Warehouse Stock Check
   }
        ↓
   Warehouse Service: (see Warehouse Flow section)
-    - Checks bundle configs
-    - Checks warehouse tolerance
-    - Checks current inventory
+    - Gets bundle composition (grosir_bundle_composition)
+    - Checks current inventory (warehouse_inventory)
     - If stock available: Reserves it
     - If no stock: Creates PO to factory + WhatsApp
     - Returns: { hasStock, bundlesOrdered, ... }
@@ -811,58 +809,98 @@ warehouse_inventory:
 - ❌ `grosir_warehouse_tolerance` → Use `warehouse_inventory` config
 - ❌ `grosir_variant_allocations` → Not needed
 
-### Algorithm (Simplified - in getInventoryStatus):
+### Algorithm (Bundle Overflow Check):
 
 ```typescript
-// Called by group-buying-service to check availability
+// Called by group-buying-service when user joins session
 
-STEP 1: Get warehouse inventory
-  inventory = warehouse_inventory.findUnique({
-    where: { product_id, variant_id }
-  })
+STEP 1: Call warehouse API to check bundle overflow
+  GET /api/warehouse/check-bundle-overflow?productId=X&variantId=M
 
-STEP 2: Calculate available stock
-  availableQuantity = inventory.quantity - inventory.reserved_quantity
+STEP 2: Warehouse checks if variant has stock
+  inventory = warehouse_inventory.find({ product_id, variant_id: M })
+  available = inventory.quantity - inventory.reserved_quantity
 
-STEP 3: Check stock status
-  if (availableQuantity <= 0)
-    status = 'out_of_stock'
-  else if (inventory.quantity <= inventory.reorder_threshold)
-    status = 'low_stock'
-  else
-    status = 'in_stock'
+  If available > 0:
+    Return: { isLocked: false, canOrder: true, reason: "Stock available" }
 
-STEP 4: Return inventory status
-  Return: {
-    quantity: inventory.quantity,
-    reservedQuantity: inventory.reserved_quantity,
-    availableQuantity: availableQuantity,
-    maxStockLevel: inventory.max_stock_level,
-    reorderThreshold: inventory.reorder_threshold,
-    status: status
-  }
+STEP 3: No stock - check if ordering bundle would overflow OTHER variants
+  Get bundle composition:
+    grosir_bundle_composition = [
+      { variant: S, units_in_bundle: 4 },
+      { variant: M, units_in_bundle: 4 },
+      { variant: L, units_in_bundle: 4 }
+    ]
 
-// Group-buying-service uses this to decide if user can join
-if (availableQuantity >= requestedQuantity) {
-  // Allow user to join session
-} else {
-  // Show "out of stock" or "insufficient stock"
-}
+  Get current inventory for ALL variants:
+    S: quantity=8, max_stock_level=8
+    M: quantity=0, max_stock_level=8
+    L: quantity=8, max_stock_level=8
+
+  Check each variant: Would (current + bundle) exceed max?
+    S: 8 + 4 = 12 > 8? YES → OVERFLOW
+    M: 0 + 4 = 4 > 8? NO
+    L: 8 + 4 = 12 > 8? YES → OVERFLOW
+
+  If ANY variant overflows:
+    Return: {
+      isLocked: true,
+      canOrder: false,
+      reason: "Ordering bundle would exceed max stock for: S, L"
+    }
+
+STEP 4: Group-buying-service response
+  If isLocked = true:
+    ❌ Reject user: "This variant is locked. Other variants need to be ordered first."
+  Else:
+    ✅ Allow user to join session
 ```
 
-### User Experience (Simplified):
+### User Experience Examples:
 
+**Example 1: Variant Locked (Bundle Overflow)**
 ```
-User A wants 40 M shirts:
-  Check inventory:
-    quantity: 50
-    reserved: 10
-    available: 40 ✓
+Bundle: 4S + 4M + 4L = 12 units
+Max Stock: 8S, 8M, 8L
+Current Stock: 8S, 0M, 8L
 
-  If available >= requested: Allow
-  Else: "Insufficient stock available"
+User wants 1M:
+  Check M stock: 0 (need to order bundle)
+  Simulate bundle order:
+    After: 12S, 4M, 12L
+  Check overflow:
+    12S > 8? YES ❌
+    12L > 8? YES ❌
 
-No complex tolerance or allocation calculations needed.
+Result: ❌ "M is locked. Other variants need to be ordered first."
+```
+
+**Example 2: Variant Unlocked (No Overflow)**
+```
+Bundle: 4S + 4M + 4L
+Max Stock: 8S, 8M, 8L
+Current Stock: 4S, 0M, 4L
+
+User wants 1M:
+  Check M stock: 0 (need to order bundle)
+  Simulate bundle order:
+    After: 8S, 4M, 8L
+  Check overflow:
+    8S > 8? NO ✓
+    8L > 8? NO ✓
+
+Result: ✅ "M can be ordered. Bundle will be ordered from factory."
+```
+
+**Example 3: Stock Available (No Bundle Needed)**
+```
+Current Stock: 6S, 5M, 7L
+
+User wants 2M:
+  Check M stock: 5 available ✓
+  No bundle needed
+
+Result: ✅ "M available from warehouse stock."
 ```
 
 ---
@@ -1117,17 +1155,16 @@ Factory → POST /api/warehouse/grosir-bundle-config
   ]
 }
        ↓
-Warehouse Service: Creates bundle configuration
+Product Service: Creates bundle configuration in grosir_bundle_composition
        ↓
-Also configure warehouse tolerance:
-POST /api/warehouse/tolerance
+Also configure warehouse inventory max stock levels:
+POST /api/products/:id/warehouse-inventory-config
 {
-  productId: "uuid",
-  variantTolerances: [
-    { variantId: "S-uuid", maxExcessUnits: 20 },
-    { variantId: "M-uuid", maxExcessUnits: 50 },
-    { variantId: "L-uuid", maxExcessUnits: 40 },
-    { variantId: "XL-uuid", maxExcessUnits: 30 }
+  configs: [
+    { variantId: "S-uuid", maxStockLevel: 100, reorderThreshold: 20 },
+    { variantId: "M-uuid", maxStockLevel: 150, reorderThreshold: 30 },
+    { variantId: "L-uuid", maxStockLevel: 120, reorderThreshold: 25 },
+    { variantId: "XL-uuid", maxStockLevel: 80, reorderThreshold: 15 }
   ]
 }
 ```
@@ -3055,7 +3092,7 @@ const participants = await prisma.group_participants.findMany({
 - **Regular Product Orders**: Complete flow from creation to payment to fulfillment
 - **Group Buying Sessions**: Full lifecycle including joining, MOQ validation, expiration handling
 - **Bot Participant System**: Automatic 25% fill guarantee, proper cleanup, no financial impact
-- **Grosir Bundle Allocation**: Variant balancing, tolerance checking, availability calculation
+- **Bundle Overflow Check**: Prevents ordering variants when bundle would exceed max stock levels
 - **Warehouse Integration**: Bundle demand fulfillment, PO creation, inventory management
 - **Tiered Pricing**: Dynamic pricing based on MOQ fill percentage
 - **Escrow System**: Payment holding, conditional release, proper refund handling

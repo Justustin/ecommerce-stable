@@ -2,11 +2,13 @@
   "name": "pinduoduo-clone",
   "private": true,
   "version": "1.0.0",
+  "packageManager": "pnpm@10.20.0",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --concurrency=20",
     "build": "turbo run build",
     "db:generate": "cd packages/database && pnpm prisma generate",
-    "db:studio": "cd packages/database && pnpm prisma studio"
+    "db:studio": "cd packages/database && pnpm prisma studio",
+    "clean": "rm -rf node_modules && pnpm -r exec rm -rf node_modules && rm -rf **/node_modules"
   },
   "devDependencies": {
     "turbo": "^1.11.2",
