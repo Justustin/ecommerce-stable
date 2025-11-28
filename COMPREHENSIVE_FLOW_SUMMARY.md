@@ -273,36 +273,35 @@ STEP 1: Validate Session
   - Session not expired
   - Unit price matches session.group_price
 
-STEP 2: Check Grosir Variant Availability
-  getVariantAvailability(sessionId, variantId)
+STEP 2: Check Bundle Overflow (Simplified)
+  checkBundleOverflow(productId, variantId)
     ↓
-  1. Get grosir_bundle_config for product
-     Example: 2S + 5M + 4L + 1XL per bundle
+  1. Get bundle composition from grosir_bundle_composition
+     Example: 4S + 4M + 4L per bundle (12 units total)
 
-  2. Get warehouse tolerance
-     Example: S max_excess=20, M max_excess=50
+  2. Get current warehouse inventory for ALL variants
+     Example: S=8, M=0, L=8 (with max_stock_level=8 each)
 
-  3. Count current orders for this variant (REAL participants only)
-     - Excludes bot participants
+  3. Check if requested variant has current stock
+     If stock available (M > 0): Return unlocked ✓
 
-  4. Calculate bundles needed per variant:
-     bundlesNeeded = ceil(ordered / units_per_bundle)
+  4. No stock - simulate ordering a bundle:
+     After bundle: S=8+4=12, M=0+4=4, L=8+4=12
 
-  5. Find max bundles across all variants
+  5. Check if ANY variant would exceed max_stock_level:
+     S: 12 > 8? YES → OVERFLOW
+     L: 12 > 8? YES → OVERFLOW
 
-  6. Check tolerance constraints:
-     If excess > max_tolerance: Lock variant
-
-  7. Return:
+  6. Return:
      {
-       available: number,
-       isLocked: boolean,
-       maxAllowed: number,
-       constrainingVariant: string
+       isLocked: true/false,
+       canOrder: true/false,
+       reason: "Ordering bundle would exceed max stock for: S, L",
+       overflowVariants: ["S (8+4=12>8)", "L (8+4=12>8)"]
      }
     ↓
-  If locked: throw "Variant locked - other sizes need to catch up"
-  If quantity > available: throw "Only X units available"
+  If locked: throw "Variant locked - other variants need to be ordered first"
+  If unlocked: Allow user to join
 
 STEP 3: Calculate Shipping Costs
   Two-leg shipping model:
@@ -471,9 +470,8 @@ STEP 4: Warehouse Stock Check
   }
        ↓
   Warehouse Service: (see Warehouse Flow section)
-    - Checks bundle configs
-    - Checks warehouse tolerance
-    - Checks current inventory
+    - Gets bundle composition (grosir_bundle_composition)
+    - Checks current inventory (warehouse_inventory)
     - If stock available: Reserves it
     - If no stock: Creates PO to factory + WhatsApp
     - Returns: { hasStock, bundlesOrdered, ... }
@@ -1157,17 +1155,16 @@ Factory → POST /api/warehouse/grosir-bundle-config
   ]
 }
        ↓
-Warehouse Service: Creates bundle configuration
+Product Service: Creates bundle configuration in grosir_bundle_composition
        ↓
-Also configure warehouse tolerance:
-POST /api/warehouse/tolerance
+Also configure warehouse inventory max stock levels:
+POST /api/products/:id/warehouse-inventory-config
 {
-  productId: "uuid",
-  variantTolerances: [
-    { variantId: "S-uuid", maxExcessUnits: 20 },
-    { variantId: "M-uuid", maxExcessUnits: 50 },
-    { variantId: "L-uuid", maxExcessUnits: 40 },
-    { variantId: "XL-uuid", maxExcessUnits: 30 }
+  configs: [
+    { variantId: "S-uuid", maxStockLevel: 100, reorderThreshold: 20 },
+    { variantId: "M-uuid", maxStockLevel: 150, reorderThreshold: 30 },
+    { variantId: "L-uuid", maxStockLevel: 120, reorderThreshold: 25 },
+    { variantId: "XL-uuid", maxStockLevel: 80, reorderThreshold: 15 }
   ]
 }
 ```
@@ -3095,7 +3092,7 @@ const participants = await prisma.group_participants.findMany({
 - **Regular Product Orders**: Complete flow from creation to payment to fulfillment
 - **Group Buying Sessions**: Full lifecycle including joining, MOQ validation, expiration handling
 - **Bot Participant System**: Automatic 25% fill guarantee, proper cleanup, no financial impact
-- **Grosir Bundle Allocation**: Variant balancing, tolerance checking, availability calculation
+- **Bundle Overflow Check**: Prevents ordering variants when bundle would exceed max stock levels
 - **Warehouse Integration**: Bundle demand fulfillment, PO creation, inventory management
 - **Tiered Pricing**: Dynamic pricing based on MOQ fill percentage
 - **Escrow System**: Payment holding, conditional release, proper refund handling
