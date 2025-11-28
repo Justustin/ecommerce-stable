@@ -346,7 +346,19 @@ STEP 5: Create Escrow Payment
        ↓
   User pays via Xendit
        ↓
-  Webhook marks payment as 'paid' but keeps in escrow
+  Webhook receives 'PAID' status → Payment Service processes:
+    1. Marks payment as 'paid' (keeps in escrow)
+    2. **NEW: Immediately reserves warehouse inventory**
+       - Gets participant details (product, variant, quantity)
+       - Calls Warehouse Service: POST /api/warehouse/reserve-inventory
+       - IF stock available → Reserves inventory (increments reserved_quantity)
+       - IF stock unavailable → Logs warning, will be handled at session expiration
+    3. Payment confirmation complete
+
+  ✅ BENEFIT: Paid participants get inventory locked immediately
+     - Prevents overselling across concurrent sessions
+     - Stock availability accurately reflects paid commitments
+     - Unpaid participants do NOT get inventory reserved
 
 STEP 6: Session Monitoring
   After each join:
@@ -929,10 +941,15 @@ STEP 6: Check Tolerance Constraints
   All within tolerance!
 
 STEP 7a: IF ALL IN STOCK
-  Reserve inventory:
-    UPDATE warehouse_inventory
-    SET available_quantity -= demand,
-        reserved_quantity += demand
+  Reserve remaining inventory:
+    NOTE: Some inventory may already be reserved when users paid
+    (Payment webhook reserves inventory immediately if available)
+
+    For each variant with remaining unreserved demand:
+      UPDATE warehouse_inventory
+      SET reserved_quantity += remaining_demand
+
+    BENEFIT: Double reservation prevented - only reserves what's not already locked
 
   Response:
     {
@@ -1703,11 +1720,16 @@ CREATION:
   User pays → Webhook:
     payment_status: 'paid'
     is_in_escrow: true  (still held)
+    **NEW: Inventory reserved immediately (if available)**
+      - Warehouse Service: POST /api/warehouse/reserve-inventory
+      - Increments warehouse_inventory.reserved_quantity
+      - Ensures stock is locked for paid participant
 
   Money held by Xendit, not released to merchant
 
 HOLDING PERIOD:
   Payment exists in 'paid' but 'in_escrow' state
+  **Inventory ALREADY RESERVED for this participant**
   Order NOT created yet
   Money NOT accessible by warehouse
 
