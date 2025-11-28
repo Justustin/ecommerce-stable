@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "packageManager": "pnpm@10.20.0",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --concurrency=20",
     "build": "turbo run build",
     "db:generate": "cd packages/database && pnpm prisma generate",
     "db:studio": "cd packages/database && pnpm prisma studio",
