@@ -384,7 +384,15 @@ export class WarehouseService {
         });
 
         // 3. Check each variant
-        const variantStatuses = [];
+        const variantStatuses: Array<{
+            variantId: string | null;
+            variantName: string;
+            isLocked: boolean;
+            canOrder: boolean;
+            reason: string;
+            availableQuantity: number;
+            overflowVariants?: string[];
+        }> = [];
 
         for (const bundleComp of bundleCompositions) {
             const variantId = bundleComp.variant_id;
