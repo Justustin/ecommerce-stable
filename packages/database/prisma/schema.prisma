@@ -40,7 +40,6 @@ model users {
   product_reviews       product_reviews[]
   wallet                wallet?
   sellers               sellers?
-  factories             factories?
 
   @@index([email], map: "idx_users_email")
   @@index([phone_number], map: "idx_users_phone")
@@ -319,30 +318,6 @@ model suppliers {
   warehouse_purchase_orders warehouse_purchase_orders[]
 
   @@index([supplier_code], map: "idx_suppliers_code")
-}
-
-// Keep factories for backward compatibility (maps to old factory-service)
-model factories {
-  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  owner_id                  String    @unique @db.Uuid
-  factory_name              String    @db.VarChar(255)
-  factory_code              String    @unique @db.VarChar(50)
-  description               String?
-  address                   String?
-  city                      String?   @db.VarChar(100)
-  province                  String?   @db.VarChar(100)
-  postal_code               String?   @db.VarChar(10)
-  phone_number              String?   @db.VarChar(20)
-  email                     String?   @db.VarChar(255)
-  verification_status       verification_status @default(pending)
-  status                    factory_status      @default(active)
-  created_at                DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime  @default(now()) @db.Timestamptz(6)
-
-  users                     users     @relation(fields: [owner_id], references: [id], onDelete: Cascade)
-
-  @@index([factory_code], map: "idx_factories_code")
-  @@index([owner_id], map: "idx_factories_owner")
 }
 
 // =============================================================================
@@ -962,12 +937,6 @@ enum product_status {
 }
 
 enum supplier_status {
-  active
-  inactive
-  suspended
-}
-
-enum factory_status {
   active
   inactive
   suspended
