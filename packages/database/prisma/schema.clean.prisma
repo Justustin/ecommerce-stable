@@ -224,6 +224,7 @@ model products {
   grosir_warehouse_tolerance  grosir_warehouse_tolerance[]
   order_items                 order_items[]
   seller_products             seller_products[]
+  seller_inventory            seller_inventory[]
 
   @@index([category_id], map: "idx_products_category")
   @@index([sku], map: "idx_products_sku")
