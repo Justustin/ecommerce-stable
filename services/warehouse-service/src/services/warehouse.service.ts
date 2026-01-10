@@ -3,7 +3,6 @@ import { WarehouseRepository } from '../repositories/warehouse.repository';
 import { FulfillDemandDTO, FulfillBundleDemandDTO } from '../types';
 import axios from 'axios';
 
-const FACTORY_SERVICE_URL = process.env.FACTORY_SERVICE_URL || 'http://localhost:3003';
 const LOGISTICS_SERVICE_URL = process.env.LOGISTICS_SERVICE_URL || 'http://localhost:3008';
 const WHATSAPP_SERVICE_URL = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3012';
 const WAREHOUSE_POSTAL_CODE = process.env.WAREHOUSE_POSTAL_CODE || '13910';
@@ -17,7 +16,8 @@ export class WarehouseService {
     }
 
     /**
-     * Main logic to handle demand from a completed group buy session.
+     * Main logic to handle demand for product inventory.
+     * Creates purchase orders to suppliers when stock is insufficient.
      */
     async fulfillDemand(data: FulfillDemandDTO) {
         const { productId, variantId, quantity, wholesaleUnit } = data;
@@ -53,52 +53,52 @@ export class WarehouseService {
             };
         }
 
-        // 2. If insufficient, calculate how much to order from the factory
+        // 2. If insufficient, calculate how much to order from the supplier
         const needed = quantity - currentStock;
 
-        // ✅ Round up to the nearest wholesale_unit
-        const factoryOrderQuantity = Math.ceil(needed / wholesaleUnit) * wholesaleUnit;
+        // Round up to the nearest wholesale_unit
+        const orderQuantity = Math.ceil(needed / wholesaleUnit) * wholesaleUnit;
 
-        console.log(`Insufficient stock. Need ${needed}, ordering ${factoryOrderQuantity} from factory.`);
+        console.log(`Insufficient stock. Need ${needed}, ordering ${orderQuantity} from supplier.`);
 
-        // 3. Get product and factory details to create the purchase order
+        // 3. Get product and supplier details to create the purchase order
         const product = await prisma.products.findUnique({
             where: { id: productId },
-            include: { factories: true }
+            include: { suppliers: true }
         });
-        if (!product || !product.factories) {
-            throw new Error(`Product or factory not found for productId: ${productId}`);
+        if (!product || !product.suppliers) {
+            throw new Error(`Product or supplier not found for productId: ${productId}`);
         }
 
-        const factory = product.factories;
+        const supplier = product.suppliers;
 
-        // 4. Calculate Leg 1 (Factory -> Warehouse) shipping cost for the PO
-        const shippingCost = await this._calculateBulkShipping(factory, product, factoryOrderQuantity);
+        // 4. Calculate Leg 1 (Supplier -> Warehouse) shipping cost for the PO
+        const shippingCost = await this._calculateBulkShipping(supplier, product, orderQuantity);
 
         // 5. Create the Warehouse Purchase Order
-        const unitCost = Number(product.cost_price || product.base_price);
-        const totalCost = (unitCost * factoryOrderQuantity) + shippingCost;
+        const unitCost = Number(product.cost_price);
+        const totalCost = (unitCost * orderQuantity) + shippingCost;
 
         const purchaseOrder = await this.repository.createPurchaseOrder({
-            factoryId: factory.id,
+            supplierId: supplier.id,
             productId,
             variantId,
-            quantity: factoryOrderQuantity,
+            quantity: orderQuantity,
             unitCost,
             shippingCost,
             totalCost
         });
 
-        console.log(`Created Purchase Order ${purchaseOrder.po_number} for ${factoryOrderQuantity} units.`);
+        console.log(`Created Purchase Order ${purchaseOrder.po_number} for ${orderQuantity} units.`);
 
-        // 6. NEW: Send WhatsApp to factory about purchase order
-        await this._sendWhatsAppToFactory(factory, product, purchaseOrder, factoryOrderQuantity);
+        // 6. Send WhatsApp to supplier about purchase order
+        await this._sendWhatsAppToSupplier(supplier, product, purchaseOrder, orderQuantity);
 
         return {
-            message: "Insufficient stock. Purchase order created and factory notified.",
+            message: "Insufficient stock. Purchase order created and supplier notified.",
             hasStock: false,
             purchaseOrder,
-            grosirUnitsNeeded: Math.ceil(factoryOrderQuantity / wholesaleUnit)
+            grosirUnitsNeeded: Math.ceil(orderQuantity / wholesaleUnit)
         };
     }
 
