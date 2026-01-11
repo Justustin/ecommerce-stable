@@ -16,79 +16,99 @@ const (
 )
 
 type Product struct {
-	ID              uuid.UUID        `json:"id"`
-	CategoryID      uuid.UUID        `json:"category_id"`
-	SupplierID      *uuid.UUID       `json:"supplier_id,omitempty"`
-	SKU             string           `json:"sku"`
-	Name            string           `json:"name"`
-	Slug            string           `json:"slug"`
+	ID              uuid.UUID        `json:"id" gorm:"type:uuid;primaryKey"`
+	CategoryID      uuid.UUID        `json:"category_id" gorm:"type:uuid;not null"`
+	SupplierID      *uuid.UUID       `json:"supplier_id,omitempty" gorm:"type:uuid"`
+	SKU             string           `json:"sku" gorm:"uniqueIndex;not null"`
+	Name            string           `json:"name" gorm:"not null"`
+	Slug            string           `json:"slug" gorm:"uniqueIndex;not null"`
 	Description     *string          `json:"description,omitempty"`
-	CostPrice       decimal.Decimal  `json:"cost_price"`
+	CostPrice       decimal.Decimal  `json:"cost_price" gorm:"type:decimal(12,2);not null"`
 	WeightGrams     *int             `json:"weight_grams,omitempty"`
-	LengthCm        *decimal.Decimal `json:"length_cm,omitempty"`
-	WidthCm         *decimal.Decimal `json:"width_cm,omitempty"`
-	HeightCm        *decimal.Decimal `json:"height_cm,omitempty"`
+	LengthCm        *decimal.Decimal `json:"length_cm,omitempty" gorm:"type:decimal(8,2)"`
+	WidthCm         *decimal.Decimal `json:"width_cm,omitempty" gorm:"type:decimal(8,2)"`
+	HeightCm        *decimal.Decimal `json:"height_cm,omitempty" gorm:"type:decimal(8,2)"`
 	PrimaryImageURL *string          `json:"primary_image_url,omitempty"`
 	GrosirUnitSize  *int             `json:"grosir_unit_size,omitempty"`
-	Status          ProductStatus    `json:"status"`
+	Status          ProductStatus    `json:"status" gorm:"type:product_status;default:'draft'"`
 	MetaTitle       *string          `json:"meta_title,omitempty"`
 	MetaDescription *string          `json:"meta_description,omitempty"`
 	PublishedAt     *time.Time       `json:"published_at,omitempty"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
+	CreatedAt       time.Time        `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt       time.Time        `json:"updated_at" gorm:"autoUpdateTime"`
 
 	// Relations
-	Category *Category        `json:"category,omitempty"`
-	Supplier *Supplier        `json:"supplier,omitempty"`
-	Variants []ProductVariant `json:"variants,omitempty"`
-	Images   []ProductImage   `json:"images,omitempty"`
+	Category *Category        `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
+	Supplier *Supplier        `json:"supplier,omitempty" gorm:"foreignKey:SupplierID"`
+	Variants []ProductVariant `json:"variants,omitempty" gorm:"foreignKey:ProductID"`
+	Images   []ProductImage   `json:"images,omitempty" gorm:"foreignKey:ProductID"`
+}
+
+func (Product) TableName() string {
+	return "products"
 }
 
 type ProductVariant struct {
-	ID              uuid.UUID        `json:"id"`
-	ProductID       uuid.UUID        `json:"product_id"`
-	SKU             string           `json:"sku"`
-	VariantName     string           `json:"variant_name"`
+	ID              uuid.UUID        `json:"id" gorm:"type:uuid;primaryKey"`
+	ProductID       uuid.UUID        `json:"product_id" gorm:"type:uuid;not null"`
+	SKU             string           `json:"sku" gorm:"uniqueIndex;not null"`
+	VariantName     string           `json:"variant_name" gorm:"not null"`
 	Color           *string          `json:"color,omitempty"`
 	Size            *string          `json:"size,omitempty"`
 	Material        *string          `json:"material,omitempty"`
-	PriceAdjustment *decimal.Decimal `json:"price_adjustment,omitempty"`
+	PriceAdjustment *decimal.Decimal `json:"price_adjustment,omitempty" gorm:"type:decimal(12,2)"`
 	WeightGrams     *int             `json:"weight_grams,omitempty"`
 	ImageURL        *string          `json:"image_url,omitempty"`
-	IsActive        bool             `json:"is_active"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
+	IsActive        bool             `json:"is_active" gorm:"default:true"`
+	CreatedAt       time.Time        `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt       time.Time        `json:"updated_at" gorm:"autoUpdateTime"`
 
 	// Relations
-	Product *Product `json:"product,omitempty"`
+	Product *Product `json:"product,omitempty" gorm:"foreignKey:ProductID"`
+}
+
+func (ProductVariant) TableName() string {
+	return "product_variants"
 }
 
 type ProductImage struct {
-	ID           uuid.UUID `json:"id"`
-	ProductID    uuid.UUID `json:"product_id"`
-	ImageURL     string    `json:"image_url"`
+	ID           uuid.UUID `json:"id" gorm:"type:uuid;primaryKey"`
+	ProductID    uuid.UUID `json:"product_id" gorm:"type:uuid;not null"`
+	ImageURL     string    `json:"image_url" gorm:"not null"`
 	AltText      *string   `json:"alt_text,omitempty"`
-	DisplayOrder int       `json:"display_order"`
-	IsPrimary    bool      `json:"is_primary"`
-	CreatedAt    time.Time `json:"created_at"`
+	DisplayOrder int       `json:"display_order" gorm:"default:0"`
+	IsPrimary    bool      `json:"is_primary" gorm:"default:false"`
+	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime"`
+}
+
+func (ProductImage) TableName() string {
+	return "product_images"
 }
 
 type Category struct {
-	ID           uuid.UUID  `json:"id"`
-	ParentID     *uuid.UUID `json:"parent_id,omitempty"`
-	Name         string     `json:"name"`
-	Slug         string     `json:"slug"`
+	ID           uuid.UUID  `json:"id" gorm:"type:uuid;primaryKey"`
+	ParentID     *uuid.UUID `json:"parent_id,omitempty" gorm:"type:uuid"`
+	Name         string     `json:"name" gorm:"not null"`
+	Slug         string     `json:"slug" gorm:"uniqueIndex;not null"`
 	Description  *string    `json:"description,omitempty"`
 	ImageURL     *string    `json:"image_url,omitempty"`
-	DisplayOrder int        `json:"display_order"`
-	IsActive     bool       `json:"is_active"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	DisplayOrder int        `json:"display_order" gorm:"default:0"`
+	IsActive     bool       `json:"is_active" gorm:"default:true"`
+	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (Category) TableName() string {
+	return "categories"
 }
 
 type Supplier struct {
-	ID           uuid.UUID `json:"id"`
-	SupplierCode string    `json:"supplier_code"`
-	SupplierName string    `json:"supplier_name"`
+	ID           uuid.UUID `json:"id" gorm:"type:uuid;primaryKey"`
+	SupplierCode string    `json:"supplier_code" gorm:"uniqueIndex;not null"`
+	SupplierName string    `json:"supplier_name" gorm:"not null"`
 	City         *string   `json:"city,omitempty"`
+}
+
+func (Supplier) TableName() string {
+	return "suppliers"
 }

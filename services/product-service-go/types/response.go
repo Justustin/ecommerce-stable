@@ -1,5 +1,7 @@
 package types
 
+import "github.com/lakoo/product-service-go/models"
+
 type APIResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message,omitempty"`
@@ -8,13 +10,13 @@ type APIResponse struct {
 }
 
 type PaginatedResponse struct {
-	Products   interface{} `json:"products"`
-	Pagination Pagination  `json:"pagination"`
+	Products   []models.Product `json:"products"`
+	Pagination Pagination       `json:"pagination"`
 }
 
 type Pagination struct {
 	Total      int64 `json:"total"`
 	Page       int   `json:"page"`
 	Limit      int   `json:"limit"`
-	TotalPages int   `json:"totalPages"`
+	TotalPages int   `json:"total_pages"`
 }

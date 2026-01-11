@@ -26,7 +26,7 @@ func (c *ProductController) CreateProduct(ctx *gin.Context) {
 		return
 	}
 
-	product, err := c.service.CreateProduct(ctx.Request.Context(), dto)
+	product, err := c.service.CreateProduct(dto)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, types.APIResponse{Success: false, Error: err.Error()})
 		return
@@ -43,7 +43,17 @@ func (c *ProductController) GetProducts(ctx *gin.Context) {
 		return
 	}
 
-	result, err := c.service.GetProducts(ctx.Request.Context(), query)
+	// Convert query to filter payload
+	filterPayload := types.ProductFilterPayload{
+		CategoryID: query.CategoryID,
+		SupplierID: query.SupplierID,
+		Status:     query.Status,
+		Search:     query.Search,
+		Page:       query.Page,
+		Limit:      query.Limit,
+	}
+
+	result, err := c.service.GetProducts(filterPayload)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, types.APIResponse{Success: false, Error: err.Error()})
 		return
@@ -56,7 +66,7 @@ func (c *ProductController) GetProducts(ctx *gin.Context) {
 func (c *ProductController) GetProductBySlug(ctx *gin.Context) {
 	slug := ctx.Param("slug")
 
-	product, err := c.service.GetProductBySlug(ctx.Request.Context(), slug)
+	product, err := c.service.GetProductBySlug(slug)
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Product not found"})
@@ -78,7 +88,7 @@ func (c *ProductController) GetProductByID(ctx *gin.Context) {
 		return
 	}
 
-	product, err := c.service.GetProductByID(ctx.Request.Context(), id)
+	product, err := c.service.GetProductByID(id)
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Product not found"})
@@ -106,7 +116,7 @@ func (c *ProductController) UpdateProduct(ctx *gin.Context) {
 		return
 	}
 
-	product, err := c.service.UpdateProduct(ctx.Request.Context(), id, dto)
+	product, err := c.service.UpdateProduct(id, dto)
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Product not found"})
@@ -128,7 +138,7 @@ func (c *ProductController) PublishProduct(ctx *gin.Context) {
 		return
 	}
 
-	product, err := c.service.PublishProduct(ctx.Request.Context(), id)
+	product, err := c.service.PublishProduct(id)
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Product not found"})
@@ -150,7 +160,7 @@ func (c *ProductController) DeleteProduct(ctx *gin.Context) {
 		return
 	}
 
-	err = c.service.DeleteProduct(ctx.Request.Context(), id)
+	err = c.service.DeleteProduct(id)
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Product not found"})
@@ -178,7 +188,7 @@ func (c *ProductController) AddImages(ctx *gin.Context) {
 		return
 	}
 
-	err = c.service.AddProductImages(ctx.Request.Context(), productID, dto.Images)
+	err = c.service.AddProductImages(productID, dto.Images)
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Product not found"})
@@ -205,9 +215,8 @@ func (c *ProductController) CreateVariant(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, types.APIResponse{Success: false, Error: err.Error()})
 		return
 	}
-	dto.ProductID = productID
 
-	variant, err := c.service.CreateVariant(ctx.Request.Context(), dto)
+	variant, err := c.service.CreateVariant(productID, dto)
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Product not found"})
@@ -229,7 +238,7 @@ func (c *ProductController) GetVariantByID(ctx *gin.Context) {
 		return
 	}
 
-	variant, err := c.service.GetVariantByID(ctx.Request.Context(), variantID)
+	variant, err := c.service.GetVariantByID(variantID)
 	if err != nil {
 		if errors.Is(err, service.ErrVariantNotFound) {
 			ctx.JSON(http.StatusNotFound, types.APIResponse{Success: false, Error: "Variant not found"})

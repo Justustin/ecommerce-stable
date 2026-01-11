@@ -54,6 +54,17 @@ type ProductQuery struct {
 	Limit      int        `form:"limit,default=20"`
 }
 
+// ProductFilterPayload is used for service layer filtering
+// It maps to JSON for PayloadToMap conversion
+type ProductFilterPayload struct {
+	CategoryID *uuid.UUID `json:"category_id,omitempty"`
+	SupplierID *uuid.UUID `json:"supplier_id,omitempty"`
+	Status     *string    `json:"status,omitempty"`
+	Search     *string    `json:"search,omitempty"`
+	Page       int        `json:"page"`
+	Limit      int        `json:"limit"`
+}
+
 type AddImagesDTO struct {
 	Images []ImageInput `json:"images" binding:"required"`
 }

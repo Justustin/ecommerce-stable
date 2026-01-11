@@ -25,7 +25,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer database.Close()
+
+	// Get underlying sql.DB for cleanup
+	sqlDB, err := database.DB()
+	if err != nil {
+		log.Fatalf("Failed to get sql.DB: %v", err)
+	}
+	defer sqlDB.Close()
 
 	log.Println("Connected to database successfully")
 
