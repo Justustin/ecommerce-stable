@@ -2,7 +2,7 @@
 
 # Binary name
 BINARY_NAME=product-service-go
-MAIN_PATH=./cmd/server
+MAIN_PATH=./cmd/api
 
 # Go parameters
 GOCMD=go

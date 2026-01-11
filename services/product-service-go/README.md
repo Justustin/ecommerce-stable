@@ -7,9 +7,7 @@ A high-performance product catalog service for the LAKOO e-commerce platform, wr
 - Product CRUD operations with pagination
 - Product variants (size, color, material)
 - Product images management
-- Category management with hierarchical structure
-- Brand product assignments with brand-specific pricing
-- Multi-brand support (15 official LAKOO brands)
+- Supplier relationship (read-only reference)
 
 ## Tech Stack
 
@@ -33,31 +31,12 @@ A high-performance product catalog service for the LAKOO e-commerce platform, wr
 | PATCH | `/api/products/:id/publish` | Publish product |
 | POST | `/api/products/:id/images` | Add images |
 | POST | `/api/products/:id/variants` | Create variant |
-| POST | `/api/products/:id/brands` | Assign to brand |
 
 ### Variants
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/variants/:variantId` | Get variant by ID |
-
-### Brand Products
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/brands/:brandId/products` | Get products for a brand |
-
-### Categories
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/categories` | Create category |
-| GET | `/api/categories` | List all categories |
-| GET | `/api/categories/tree` | Get category tree |
-| GET | `/api/categories/:slug` | Get by slug |
-| GET | `/api/categories/id/:id` | Get by ID |
-| PATCH | `/api/categories/:id` | Update category |
-| DELETE | `/api/categories/:id` | Soft delete category |
+| GET | `/api/products/variants/:variantId` | Get variant by ID |
 
 ## Getting Started
 
@@ -110,32 +89,32 @@ make docker-run
 
 ## Database Schema
 
-This service works with the new LAKOO schema:
+This service works with these tables:
 
 - `products` - Master product catalog (warehouse)
 - `product_variants` - Size/color variations
 - `product_images` - Product images
-- `categories` - Hierarchical categories
-- `suppliers` - External suppliers
-- `brands` - 15 official LAKOO brands
-- `brand_products` - Product-brand assignments with brand-specific pricing
+- `categories` - Categories (read for reference)
+- `suppliers` - Suppliers (read for reference)
 
 ## Architecture
 
 ```
 product-service-go/
 ├── cmd/
-│   └── server/
+│   └── api/
 │       └── main.go          # Application entry point
+├── config/
+│   └── config.go            # Configuration
+├── db/
+│   └── postgres.go          # Database connection
 ├── internal/
-│   ├── config/              # Configuration
-│   ├── models/              # Data models & DTOs
+│   ├── controller/          # HTTP controllers
 │   ├── repository/          # Database operations
-│   ├── service/             # Business logic
-│   ├── handler/             # HTTP handlers
-│   └── middleware/          # HTTP middleware
-├── pkg/
-│   └── database/            # Database connection
+│   └── service/             # Business logic
+├── models/                  # Data models
+├── types/                   # Request/Response DTOs
+├── utils/                   # Utilities & middleware
 ├── Dockerfile
 ├── Makefile
 └── go.mod
